@@ -6,8 +6,9 @@ import grassTexture from '../../assets/textures/grass-min.jpg';
 /**
  * Componente de terreno básico para el juego
  * Crea un plano grande que sirve como suelo del escenario con colisiones
+ * @param {boolean} hasPhysics - Si es false, no incluye física (útil para editor)
  */
-export const Terrain = () => {
+export const Terrain = ({ hasPhysics = true }) => {
   const texture = useLoader(TextureLoader, grassTexture);
   
   // Repetir la textura para que cubra todo el terreno
@@ -15,17 +16,25 @@ export const Terrain = () => {
   texture.wrapT = RepeatWrapping;
   texture.repeat.set(10, 10);
 
+  const terrainMesh = (
+    <mesh
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, 0, 0]}
+      receiveShadow
+    >
+      <planeGeometry args={[100, 100]} />
+      <meshStandardMaterial map={texture} />
+    </mesh>
+  );
+
+  // Si no hay física, solo retornar el mesh
+  if (!hasPhysics) {
+    return terrainMesh;
+  }
+
   return (
     <>
-      {/* Terreno visual con textura de pasto */}
-      <mesh
-        rotation={[-Math.PI / 2, 0, 0]}
-        position={[0, 0, 0]}
-        receiveShadow
-      >
-        <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial map={texture} />
-      </mesh>
+      {terrainMesh}
       
       {/* Colisión del terreno usando CuboidCollider */}
       {/* args son half-extents: [halfX, halfY, halfZ] */}

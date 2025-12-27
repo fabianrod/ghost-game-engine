@@ -14,17 +14,26 @@ body {
   cursor: crosshair;
 }
 
-/* Mostrar cursor normal en modo edición */
+/* Mostrar cursor normal en modo edición - PRIORIDAD ALTA */
 body.editor-mode {
-  cursor: default;
+  cursor: default !important;
 }
 
 body.editor-mode * {
   cursor: default !important;
 }
 
-body:has(:not(:root)) {
+body.editor-mode canvas {
+  cursor: default !important;
+}
+
+/* Solo ocultar cursor en modo juego cuando pointer está bloqueado */
+body:not(.editor-mode)[data-pointer-locked="true"] {
   cursor: none;
+}
+
+body:not(.editor-mode)[data-pointer-locked="true"] * {
+  cursor: none !important;
 }
 
 .app-container {

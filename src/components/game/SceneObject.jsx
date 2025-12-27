@@ -1,6 +1,6 @@
 import { useGLTF } from '@react-three/drei';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import * as THREE from 'three';
 
 /**
@@ -53,6 +53,20 @@ export const SceneObject = ({
   const rotationInRadians = useMemo(() => {
     return rotation.map(angle => (angle * Math.PI) / 180);
   }, [rotation]);
+
+  // Asegurar que todos los meshes sean raycastables
+  useEffect(() => {
+    clonedScene.traverse((child) => {
+      if (child.isMesh) {
+        // Asegurar que el mesh sea raycastable
+        child.raycast = THREE.Mesh.prototype.raycast;
+        // Asegurar que la geometría esté actualizada
+        if (child.geometry) {
+          child.geometry.computeBoundingBox();
+        }
+      }
+    });
+  }, [clonedScene]);
 
   const objectContent = (
     <primitive 

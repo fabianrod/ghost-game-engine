@@ -10,15 +10,23 @@ import './App.css';
 function App() {
   const [mode, setMode] = useState('game'); // 'game' o 'editor'
 
-  // Agregar clase al body para modo edición
+  // Agregar clase al body para modo edición y asegurar cursor visible
   useEffect(() => {
     if (mode === 'editor') {
       document.body.classList.add('editor-mode');
+      // Asegurar que el cursor sea visible inmediatamente
+      document.body.style.cursor = 'default';
+      // Desbloquear pointer si está bloqueado
+      if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
     } else {
       document.body.classList.remove('editor-mode');
+      document.body.style.cursor = '';
     }
     return () => {
       document.body.classList.remove('editor-mode');
+      document.body.style.cursor = '';
     };
   }, [mode]);
 
