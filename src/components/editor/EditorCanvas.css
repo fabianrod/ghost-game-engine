@@ -1,0 +1,11 @@
+.editor-canvas {
+  flex: 1;
+  position: relative;
+  background: #000;
+  cursor: default;
+}
+
+.editor-canvas canvas {
+  cursor: default !important;
+}
+

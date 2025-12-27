@@ -1,0 +1,155 @@
+.properties-panel {
+  width: 320px;
+  background: #2a2a2a;
+  border-left: 1px solid #3a3a3a;
+  padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.properties-panel h3 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  color: #fff;
+  font-weight: 600;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.no-selection {
+  color: #888;
+  text-align: center;
+  padding: 20px;
+  font-style: italic;
+}
+
+.property-group {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.property-group:last-of-type {
+  border-bottom: none;
+}
+
+.property-group label {
+  display: block;
+  margin-bottom: 10px;
+  color: #ccc;
+  font-size: 13px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vector-input {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.vector-input input {
+  width: 100%;
+  padding: 10px;
+  background: #3a3a3a;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 13px;
+  text-align: center;
+}
+
+.vector-input input::placeholder {
+  color: #666;
+  font-size: 11px;
+}
+
+.vector-input input:focus {
+  outline: none;
+  border-color: #5a9;
+}
+
+.model-input {
+  width: 100%;
+  padding: 10px;
+  background: #3a3a3a;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  color: #888;
+  font-size: 12px;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.property-group input[type="checkbox"] {
+  margin-right: 10px;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  accent-color: #5a9;
+}
+
+.property-group label:has(input[type="checkbox"]) {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 13px;
+  color: #ccc;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.property-actions {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.duplicate-button {
+  width: 100%;
+  padding: 12px;
+  background: #5a9;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.duplicate-button:hover {
+  background: #6ba;
+}
+
+.duplicate-button:active {
+  background: #4a8;
+}
+
+.delete-button {
+  width: 100%;
+  padding: 12px;
+  background: #c33;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.delete-button:hover {
+  background: #d44;
+}
+
+.delete-button:active {
+  background: #b22;
+}
+

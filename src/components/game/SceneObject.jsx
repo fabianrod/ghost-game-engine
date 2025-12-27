@@ -1,0 +1,91 @@
+import { useGLTF } from '@react-three/drei';
+import { RigidBody, CuboidCollider } from '@react-three/rapier';
+import { useMemo } from 'react';
+import * as THREE from 'three';
+
+/**
+ * Componente genérico para cargar y mostrar cualquier modelo GLB
+ * @param {Object} props - Props del componente
+ * @param {string} props.model - Ruta al archivo GLB (ej: '/models/raiz-arbol.glb')
+ * @param {Array} props.position - Posición [x, y, z] del modelo
+ * @param {Array} props.scale - Escala del modelo (opcional, por defecto [1, 1, 1])
+ * @param {Array} props.rotation - Rotación del modelo (opcional, por defecto [0, 0, 0])
+ * @param {boolean} props.castShadow - Si el objeto proyecta sombras (opcional, por defecto true)
+ * @param {boolean} props.receiveShadow - Si el objeto recibe sombras (opcional, por defecto true)
+ * @param {boolean} props.hasCollider - Si el objeto tiene colisión física (opcional, por defecto true)
+ * @param {boolean} props.autoAdjustY - Si ajusta automáticamente la posición Y (opcional, por defecto true)
+ */
+export const SceneObject = ({ 
+  model,
+  position = [0, 0, 0], 
+  scale = [1, 1, 1],
+  rotation = [0, 0, 0],
+  castShadow = true,
+  receiveShadow = true,
+  hasCollider = true,
+  autoAdjustY = true
+}) => {
+  // Cargar el modelo GLB
+  const { scene } = useGLTF(model);
+
+  // Clonar la escena para evitar problemas con múltiples instancias
+  const clonedScene = useMemo(() => scene.clone(), [scene]);
+
+  // Calcular el bounding box del modelo para posicionarlo correctamente
+  const boundingBox = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(clonedScene);
+    return box;
+  }, [clonedScene]);
+
+  // Calcular la altura mínima del modelo (desde el origen)
+  const minY = boundingBox.min.y;
+  // Ajustar la posición Y para que el modelo esté sobre el terreno (Y=0)
+  // Solo si autoAdjustY está habilitado (útil en el editor para control manual)
+  const adjustedPosition = autoAdjustY 
+    ? [position[0], position[1] - minY * scale[1], position[2]]
+    : position;
+
+  // Calcular el tamaño del collider basado en el bounding box
+  const size = boundingBox.getSize(new THREE.Vector3());
+  const center = boundingBox.getCenter(new THREE.Vector3());
+
+  // Convertir rotación de grados a radianes si es necesario
+  const rotationInRadians = useMemo(() => {
+    return rotation.map(angle => (angle * Math.PI) / 180);
+  }, [rotation]);
+
+  const objectContent = (
+    <primitive 
+      object={clonedScene} 
+      scale={scale}
+      rotation={rotationInRadians}
+      castShadow={castShadow}
+      receiveShadow={receiveShadow}
+    />
+  );
+
+  // Si tiene colisión, envolver en RigidBody
+  if (hasCollider) {
+    return (
+      <RigidBody type="fixed" position={adjustedPosition}>
+        {objectContent}
+        {/* Collider basado en el tamaño del modelo */}
+        <CuboidCollider 
+          args={[size.x * scale[0] / 2, size.y * scale[1] / 2, size.z * scale[2] / 2]}
+          position={[center.x * scale[0], center.y * scale[1], center.z * scale[2]]}
+        />
+      </RigidBody>
+    );
+  }
+
+  // Si no tiene colisión, solo renderizar el objeto
+  return (
+    <group position={adjustedPosition} rotation={rotationInRadians}>
+      {objectContent}
+    </group>
+  );
+};
+
+// Precargar modelos comunes (se puede expandir)
+// useGLTF.preload('/models/raiz-arbol.glb');
+

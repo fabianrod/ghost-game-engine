@@ -1,0 +1,73 @@
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.toolbar-left h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #fff;
+}
+
+.object-count {
+  color: #888;
+  font-size: 14px;
+}
+
+.level-name {
+  color: #5a9;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 10px;
+}
+
+.toolbar-button {
+  padding: 8px 16px;
+  background: #3a3a3a;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toolbar-button:hover {
+  background: #4a4a4a;
+  border-color: #5a5a5a;
+}
+
+.toolbar-button.primary {
+  background: #5a9;
+  border-color: #6ba;
+}
+
+.toolbar-button.primary:hover {
+  background: #6ba;
+  border-color: #7cb;
+}
+
+.toolbar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbar-button:disabled:hover {
+  background: inherit;
+  border-color: inherit;
+}
+
