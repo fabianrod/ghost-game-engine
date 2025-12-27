@@ -58,12 +58,46 @@ export const useLevelManager = () => {
       setLoading(true);
       setError(null);
       
+      // Primero intentar cargar desde localStorage (cambios sin guardar)
+      try {
+        const cachedData = localStorage.getItem(`level_${filename}`);
+        const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
+        
+        if (cachedData && cachedTimestamp) {
+          // Verificar que el cache no sea muy antiguo (más de 24 horas)
+          const timestamp = parseInt(cachedTimestamp, 10);
+          const age = Date.now() - timestamp;
+          const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+          
+          if (age < maxAge) {
+            try {
+              const data = JSON.parse(cachedData);
+              console.log(`✅ Cargando nivel desde localStorage (cambios sin guardar): ${filename}`);
+              setCurrentLevel({ filename, data });
+              return data;
+            } catch (parseErr) {
+              console.warn('Error parseando datos de localStorage:', parseErr);
+              // Continuar con carga desde archivo
+            }
+          } else {
+            // Cache muy antiguo, limpiarlo
+            localStorage.removeItem(`level_${filename}`);
+            localStorage.removeItem(`level_${filename}_timestamp`);
+          }
+        }
+      } catch (storageErr) {
+        console.warn('Error accediendo a localStorage:', storageErr);
+        // Continuar con carga desde archivo
+      }
+      
+      // Si no hay datos en localStorage, cargar desde el archivo JSON
       const response = await fetch(`/levels/${filename}`);
       if (!response.ok) {
         throw new Error(`No se pudo cargar el nivel: ${response.statusText}`);
       }
       
       const data = await response.json();
+      console.log(`✅ Cargando nivel desde archivo: ${filename}`);
       setCurrentLevel({ filename, data });
       return data;
     } catch (err) {
@@ -88,6 +122,15 @@ export const useLevelManager = () => {
       // Crear el JSON
       const jsonString = JSON.stringify(levelData, null, 2);
       
+      // Guardar también en localStorage para sincronización inmediata con el modo juego
+      // Esto permite que los cambios se reflejen sin necesidad de guardar archivos manualmente
+      try {
+        localStorage.setItem(`level_${filename}`, jsonString);
+        localStorage.setItem(`level_${filename}_timestamp`, Date.now().toString());
+      } catch (storageErr) {
+        console.warn('No se pudo guardar en localStorage:', storageErr);
+      }
+      
       // En el navegador, no podemos escribir directamente al sistema de archivos
       // Usamos el File System Access API si está disponible, o descarga
       if ('showSaveFilePicker' in window) {
@@ -107,6 +150,11 @@ export const useLevelManager = () => {
           
           // Actualizar lista de niveles
           await listLevels();
+          
+          // Mostrar mensaje informativo
+          if (filename === 'level1.json') {
+            console.log('✅ Nivel guardado. Los cambios ya están disponibles en el modo juego gracias a localStorage.');
+          }
           return true;
         } catch (err) {
           if (err.name !== 'AbortError') {
@@ -127,7 +175,11 @@ export const useLevelManager = () => {
         URL.revokeObjectURL(url);
         
         // Mostrar mensaje al usuario
-        alert(`Nivel guardado como ${filename}. Por favor, colócalo manualmente en /public/levels/`);
+        if (filename === 'level1.json') {
+          alert(`✅ Nivel guardado como ${filename}.\n\nLos cambios ya están disponibles en el modo juego.\n\nSi quieres guardar permanentemente, coloca el archivo descargado en /public/levels/`);
+        } else {
+          alert(`Nivel guardado como ${filename}. Por favor, colócalo manualmente en /public/levels/`);
+        }
         return true;
       }
     } catch (err) {

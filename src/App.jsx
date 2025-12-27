@@ -32,21 +32,23 @@ function App() {
 
   return (
     <div className="app-container">
-      {/* Toggle para cambiar entre modos */}
-      <div className="mode-toggle">
-        <button
-          className={mode === 'game' ? 'active' : ''}
-          onClick={() => setMode('game')}
-        >
-          🎮 Modo Juego
-        </button>
-        <button
-          className={mode === 'editor' ? 'active' : ''}
-          onClick={() => setMode('editor')}
-        >
-          ✏️ Modo Edición
-        </button>
-      </div>
+      {/* Toggle solo visible en modo juego */}
+      {mode === 'game' && (
+        <div className="mode-toggle">
+          <button
+            className={mode === 'game' ? 'active' : ''}
+            onClick={() => setMode('game')}
+          >
+            🎮 Modo Juego
+          </button>
+          <button
+            className={mode === 'editor' ? 'active' : ''}
+            onClick={() => setMode('editor')}
+          >
+            ✏️ Modo Edición
+          </button>
+        </div>
+      )}
 
       {mode === 'game' ? (
         <>
@@ -60,7 +62,7 @@ function App() {
           </div>
         </>
       ) : (
-        <LevelEditor />
+        <LevelEditor mode={mode} onModeChange={setMode} />
       )}
     </div>
   );

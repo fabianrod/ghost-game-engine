@@ -71,3 +71,17 @@
   border-color: inherit;
 }
 
+.toolbar-button.mode-toggle-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-button.mode-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.toolbar-button.mode-toggle-btn.active {
+  background: #5a9;
+  border-color: #6ba;
+}
+

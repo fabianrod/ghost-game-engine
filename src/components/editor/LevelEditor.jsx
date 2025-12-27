@@ -4,7 +4,6 @@ import { ObjectLibrary } from './ObjectLibrary';
 import { PropertiesPanel } from './PropertiesPanel';
 import { Toolbar } from './Toolbar';
 import { EditorControls } from './EditorControls';
-import { LevelSelector } from './LevelSelector';
 import './LevelEditor.css';
 import { useLevelManager } from '../../hooks/useLevelManager';
 
@@ -12,7 +11,7 @@ import { useLevelManager } from '../../hooks/useLevelManager';
  * Componente principal del editor de niveles
  * Maneja el estado global del editor y la interfaz
  */
-export const LevelEditor = () => {
+export const LevelEditor = ({ mode, onModeChange }) => {
   const [objects, setObjects] = useState([]);
   const [selectedObject, setSelectedObject] = useState(null);
   const [availableModels, setAvailableModels] = useState([]);
@@ -35,15 +34,45 @@ export const LevelEditor = () => {
     listLevels,
   } = useLevelManager();
 
-  // Cargar lista de modelos disponibles desde /public/models/
+  // Cargar lista de modelos disponibles desde src/assets/models/
   useEffect(() => {
-    // En desarrollo, podemos usar import.meta.glob de Vite
-    // O hacer un fetch a un endpoint que liste los archivos
-    // Por ahora, lista manual de modelos conocidos
-    const models = [
-      { name: 'Raíz de Árbol', path: '/models/raiz-arbol.glb' },
-      // Agregar más modelos aquí cuando los tengas
-    ];
+    // Usar import.meta.glob de Vite para cargar automáticamente todos los .glb
+    // En Vite, los assets importados devuelven la URL como string
+    const modelModules = import.meta.glob('../../assets/models/*.glb', { 
+      eager: true,
+      import: 'default'
+    });
+    
+    // Convertir los módulos importados a un array de modelos
+    const models = Object.entries(modelModules).map(([path, module]) => {
+      // Extraer el nombre del archivo de la ruta
+      const fileName = path.split('/').pop().replace('.glb', '');
+      // Generar un nombre amigable (reemplazar guiones y capitalizar)
+      const friendlyName = fileName
+        .split('-')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ')
+        .replace(/_/g, ' '); // También reemplazar guiones bajos
+      
+      // En Vite, cuando importas un asset con eager: true, el módulo es la URL directamente
+      // o puede estar en module.default
+      let modelUrl;
+      if (typeof module === 'string') {
+        modelUrl = module;
+      } else if (module && typeof module === 'object' && 'default' in module) {
+        modelUrl = module.default;
+      } else {
+        // Fallback: usar la ruta original (no debería llegar aquí)
+        console.warn('No se pudo obtener URL para:', path, module);
+        modelUrl = path;
+      }
+      
+      return {
+        name: friendlyName,
+        path: modelUrl,
+      };
+    });
+    
     setAvailableModels(models);
   }, []);
 
@@ -62,12 +91,125 @@ export const LevelEditor = () => {
     }
   }, [currentLevel]);
 
+  // Sincronizar con cambios en localStorage (cuando se selecciona un nivel desde App.jsx)
+  useEffect(() => {
+    const checkForLevelChanges = () => {
+      // Verificar si hay un nivel en localStorage que no coincide con el actual
+      try {
+        const filename = currentLevel?.filename || 'level1.json';
+        const cachedData = localStorage.getItem(`level_${filename}`);
+        const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
+        
+        if (cachedData && cachedTimestamp) {
+          const timestamp = parseInt(cachedTimestamp, 10);
+          const age = Date.now() - timestamp;
+          const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+          
+          if (age < maxAge) {
+            try {
+              const data = JSON.parse(cachedData);
+              // Solo actualizar si el nivel es diferente
+              if (!currentLevel || 
+                  currentLevel.filename !== filename || 
+                  JSON.stringify(currentLevel.data) !== JSON.stringify(data)) {
+                console.log(`🔄 Sincronizando nivel desde localStorage: ${filename}`);
+                setCurrentLevel({ filename, data });
+              }
+            } catch (parseErr) {
+              console.warn('Error parseando datos de localStorage:', parseErr);
+            }
+          }
+        }
+      } catch (storageErr) {
+        console.warn('Error accediendo a localStorage:', storageErr);
+      }
+    };
+
+    // Verificar cada segundo si hay cambios en localStorage
+    const interval = setInterval(checkForLevelChanges, 1000);
+    
+    return () => clearInterval(interval);
+  }, [currentLevel, setCurrentLevel]);
+
+  // Guardar automáticamente en localStorage cada vez que cambian los objetos
+  // Esto permite que los cambios se reflejen inmediatamente en el modo juego
+  useEffect(() => {
+    // Solo guardar si hay objetos o si hay un nivel cargado
+    // Evitar guardar en el montaje inicial antes de que se cargue el nivel
+    if (!currentLevel && objects.length === 0) {
+      return;
+    }
+
+    // Determinar el nombre del archivo del nivel actual (usar level1.json por defecto)
+    const filename = currentLevel?.filename || 'level1.json';
+    
+    // Preparar datos del nivel sin los IDs internos del editor
+    const levelData = {
+      name: currentLevel?.data?.name || 'Nivel Editado',
+      description: currentLevel?.data?.description || 'Nivel creado en el editor',
+      objects: objects.map(({ id, ...obj }) => obj),
+    };
+
+    // Guardar en localStorage automáticamente
+    try {
+      const jsonString = JSON.stringify(levelData, null, 2);
+      localStorage.setItem(`level_${filename}`, jsonString);
+      localStorage.setItem(`level_${filename}_timestamp`, Date.now().toString());
+      // Solo loguear si hay cambios significativos para no saturar la consola
+      if (objects.length > 0) {
+        console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos)`);
+      }
+    } catch (storageErr) {
+      console.warn('No se pudo guardar en localStorage:', storageErr);
+    }
+  }, [objects, currentLevel]); // Se ejecuta cada vez que cambian los objetos o el nivel actual
+
   // Inicializar con nivel nuevo si no hay nivel cargado
+  // Primero intentar cargar desde localStorage si hay cambios sin guardar
   useEffect(() => {
     if (!currentLevel) {
-      const newLevel = createNewLevel();
-      setCurrentLevel({ filename: null, data: newLevel });
-      setObjects([]);
+      // Intentar cargar desde localStorage primero (cambios sin guardar)
+      const tryLoadFromLocalStorage = () => {
+        try {
+          // Intentar con level1.json por defecto
+          const filename = 'level1.json';
+          const cachedData = localStorage.getItem(`level_${filename}`);
+          const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
+          
+          if (cachedData && cachedTimestamp) {
+            // Verificar que el cache no sea muy antiguo (más de 24 horas)
+            const timestamp = parseInt(cachedTimestamp, 10);
+            const age = Date.now() - timestamp;
+            const maxAge = 24 * 60 * 60 * 1000; // 24 horas
+            
+            if (age < maxAge) {
+              try {
+                const data = JSON.parse(cachedData);
+                console.log(`✅ Cargando cambios sin guardar desde localStorage: ${filename}`);
+                setCurrentLevel({ filename, data });
+                // Los objetos se cargarán en el useEffect que depende de currentLevel
+                return true;
+              } catch (parseErr) {
+                console.warn('Error parseando datos de localStorage:', parseErr);
+              }
+            } else {
+              // Cache muy antiguo, limpiarlo
+              localStorage.removeItem(`level_${filename}`);
+              localStorage.removeItem(`level_${filename}_timestamp`);
+            }
+          }
+        } catch (storageErr) {
+          console.warn('Error accediendo a localStorage:', storageErr);
+        }
+        return false;
+      };
+
+      // Si no hay datos en localStorage, crear nivel nuevo
+      if (!tryLoadFromLocalStorage()) {
+        const newLevel = createNewLevel();
+        setCurrentLevel({ filename: null, data: newLevel });
+        setObjects([]);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -251,17 +393,14 @@ export const LevelEditor = () => {
         onCopy={handleCopy}
         currentLevel={currentLevel}
         loading={levelLoading}
+        mode={mode}
+        onModeChange={onModeChange}
+        levels={levels}
+        onSelectLevel={handleSelectLevel}
+        onCreateNew={handleCreateNew}
+        onDeleteLevel={handleDeleteLevel}
+        levelLoading={levelLoading}
       />
-      <div className="toolbar-level-selector">
-        <LevelSelector
-          levels={levels}
-          currentLevel={currentLevel}
-          onSelectLevel={handleSelectLevel}
-          onCreateNew={handleCreateNew}
-          onDeleteLevel={handleDeleteLevel}
-          loading={levelLoading}
-        />
-      </div>
       {levelError && (
         <div className="error-message">
           ⚠️ {levelError}

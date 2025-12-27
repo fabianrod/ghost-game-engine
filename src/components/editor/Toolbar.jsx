@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { LevelSelector } from './LevelSelector';
 import './Toolbar.css';
 
 /**
@@ -11,6 +12,13 @@ export const Toolbar = ({
   onCopy,
   currentLevel,
   loading,
+  mode,
+  onModeChange,
+  levels,
+  onSelectLevel,
+  onCreateNew,
+  onDeleteLevel,
+  levelLoading,
 }) => {
   const [saveStatus, setSaveStatus] = useState(null);
 
@@ -58,6 +66,32 @@ export const Toolbar = ({
         )}
       </div>
       <div className="toolbar-right">
+        {mode && onModeChange && (
+          <>
+            <button
+              className={`toolbar-button mode-toggle-btn ${mode === 'game' ? 'active' : ''}`}
+              onClick={() => onModeChange('game')}
+            >
+              🎮 Modo Juego
+            </button>
+            <button
+              className={`toolbar-button mode-toggle-btn ${mode === 'editor' ? 'active' : ''}`}
+              onClick={() => onModeChange('editor')}
+            >
+              ✏️ Modo Edición
+            </button>
+          </>
+        )}
+        {levels && onSelectLevel && (
+          <LevelSelector
+            levels={levels}
+            currentLevel={currentLevel}
+            onSelectLevel={onSelectLevel}
+            onCreateNew={onCreateNew}
+            onDeleteLevel={onDeleteLevel}
+            loading={levelLoading}
+          />
+        )}
         <button
           onClick={handleCopyJSON}
           className="toolbar-button"

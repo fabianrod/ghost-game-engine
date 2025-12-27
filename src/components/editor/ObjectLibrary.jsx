@@ -12,7 +12,7 @@ export const ObjectLibrary = ({ models, onAddObject }) => {
           <p className="no-objects">
             No hay objetos disponibles.
             <br />
-            Agrega modelos GLB en /public/models/
+            Agrega modelos GLB en src/assets/models/
           </p>
         ) : (
           models.map((model, index) => (

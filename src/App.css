@@ -99,6 +99,7 @@ body[data-pointer-locked="true"] * {
   right: 20px;
   z-index: 100;
   display: flex;
+  align-items: center;
   gap: 10px;
   background: rgba(0, 0, 0, 0.7);
   padding: 8px;

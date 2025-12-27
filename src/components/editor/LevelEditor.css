@@ -13,12 +13,6 @@
   cursor: default;
 }
 
-.toolbar-level-selector {
-  position: absolute;
-  top: 70px;
-  right: 20px;
-  z-index: 150;
-}
 
 .error-message {
   position: absolute;

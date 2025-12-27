@@ -24,7 +24,7 @@ export const LevelSelector = ({
       >
         {currentLevel
           ? `📁 ${currentLevel.filename || 'Nuevo Nivel'}`
-          : '📁 Seleccionar Nivel'}
+          : '📁 Nivel'}
         <span className="dropdown-arrow">{isOpen ? '▲' : '▼'}</span>
       </button>
 
