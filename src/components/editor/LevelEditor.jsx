@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { EditorCanvas } from './EditorCanvas';
 import { ObjectLibrary } from './ObjectLibrary';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -206,19 +206,40 @@ export const LevelEditor = () => {
     }
   };
 
-  // Actualizar propiedades de un objeto
-  const handleUpdateObject = (objectId, updates) => {
-    setObjects(
-      objects.map((obj) =>
-        obj.id === objectId ? { ...obj, ...updates } : obj
-      )
-    );
-  };
+  // Crear un mapa de índices para acceso O(1) en lugar de O(n)
+  const objectIndexMap = useMemo(() => {
+    const map = new Map();
+    objects.forEach((obj, index) => {
+      map.set(obj.id, index);
+    });
+    return map;
+  }, [objects]);
 
-  // Obtener el objeto seleccionado
-  const selectedObjectData = objects.find(
-    (obj) => obj.id === selectedObject
-  );
+  // Actualizar propiedades de un objeto - OPTIMIZADO
+  // En lugar de .map() completo, actualizamos solo el objeto específico
+  const handleUpdateObject = useCallback((objectId, updates) => {
+    setObjects((prevObjects) => {
+      // Buscar índice del objeto (O(n) pero solo una vez)
+      const index = prevObjects.findIndex((obj) => obj.id === objectId);
+      
+      if (index === -1) {
+        // Objeto no encontrado, retornar array sin cambios
+        return prevObjects;
+      }
+
+      // Crear nuevo array con solo el objeto actualizado
+      const newObjects = [...prevObjects];
+      newObjects[index] = { ...newObjects[index], ...updates };
+      
+      return newObjects;
+    });
+  }, []); // Sin dependencias - usa función de actualización de estado
+
+  // Obtener el objeto seleccionado - MEMOIZADO para evitar recálculo
+  const selectedObjectData = useMemo(() => {
+    if (!selectedObject) return null;
+    return objects.find((obj) => obj.id === selectedObject);
+  }, [objects, selectedObject]);
 
   return (
     <div className="level-editor">
