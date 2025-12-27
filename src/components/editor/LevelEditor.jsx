@@ -19,6 +19,7 @@ export const LevelEditor = () => {
   const [transformMode, setTransformMode] = useState('translate');
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapSize, setSnapSize] = useState(1); // Tamaño del grid para snap
+  const [showEditorControls, setShowEditorControls] = useState(false); // Control de visibilidad del widget (oculto por defecto)
 
   // Gestor de niveles
   const {
@@ -280,18 +281,6 @@ export const LevelEditor = () => {
           snapEnabled={snapEnabled}
           snapSize={snapSize}
         />
-        <EditorControls
-          transformMode={transformMode}
-          onModeChange={setTransformMode}
-          snapEnabled={snapEnabled}
-          onSnapToggle={setSnapEnabled}
-          onDelete={() =>
-            selectedObject && handleDeleteObject(selectedObject)
-          }
-          onDuplicate={() =>
-            selectedObject && handleDuplicateObject(selectedObject)
-          }
-        />
         <PropertiesPanel
           object={selectedObjectData}
           onUpdate={(updates) =>
@@ -304,8 +293,25 @@ export const LevelEditor = () => {
           onDuplicate={() =>
             selectedObject && handleDuplicateObject(selectedObject)
           }
+          onToggleControls={() => setShowEditorControls(!showEditorControls)}
         />
       </div>
+      {/* Controles del editor fuera del editor-layout para posicionamiento fijo */}
+      {showEditorControls && (
+        <EditorControls
+          transformMode={transformMode}
+          onModeChange={setTransformMode}
+          snapEnabled={snapEnabled}
+          onSnapToggle={setSnapEnabled}
+          onDelete={() =>
+            selectedObject && handleDeleteObject(selectedObject)
+          }
+          onDuplicate={() =>
+            selectedObject && handleDuplicateObject(selectedObject)
+          }
+          onClose={() => setShowEditorControls(false)}
+        />
+      )}
     </div>
   );
 };

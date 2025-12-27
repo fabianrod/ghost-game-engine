@@ -3,12 +3,19 @@ import './PropertiesPanel.css';
 /**
  * Panel de propiedades para editar el objeto seleccionado
  */
-export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate }) => {
+export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onToggleControls }) => {
   if (!object) {
     return (
       <div className="properties-panel">
         <h3>Propiedades</h3>
         <p className="no-selection">Selecciona un objeto para editar sus propiedades</p>
+        {onToggleControls && (
+          <div className="property-actions">
+            <button className="controls-button" onClick={onToggleControls}>
+              Controles
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -163,6 +170,11 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate }) => 
         <button className="delete-button" onClick={onDelete}>
           🗑️ Eliminar Objeto
         </button>
+        {onToggleControls && (
+          <button className="controls-button" onClick={onToggleControls}>
+            Controles
+          </button>
+        )}
       </div>
     </div>
   );
