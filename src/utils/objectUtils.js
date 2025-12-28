@@ -54,10 +54,11 @@ export function createNewCollider(colliderType = 'cylinder', overrides = {}) {
  * Prepara datos del nivel para guardar (elimina IDs internos del editor)
  * @param {Array} objects - Array de objetos del editor
  * @param {Object} levelData - Datos adicionales del nivel
+ * @param {Float32Array} terrainHeightmap - Heightmap del terreno (opcional)
  * @returns {Object} Datos del nivel listos para guardar
  */
-export function prepareLevelDataForSave(objects, levelData = {}) {
-  return {
+export function prepareLevelDataForSave(objects, levelData = {}, terrainHeightmap = null) {
+  const data = {
     name: levelData.name || LEVEL_DEFAULTS.NAME,
     description: levelData.description || LEVEL_DEFAULTS.DESCRIPTION,
     objects: objects.map(({ id, colliderScale, ...obj }) => {
@@ -70,6 +71,17 @@ export function prepareLevelDataForSave(objects, levelData = {}) {
       return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
     }),
   };
+
+  // Incluir heightmap del terreno si existe
+  if (terrainHeightmap && terrainHeightmap.length > 0) {
+    // Convertir Float32Array a Array normal para JSON
+    data.terrain = {
+      heightmap: Array.from(terrainHeightmap),
+      segments: Math.sqrt(terrainHeightmap.length), // Asumir cuadrado
+    };
+  }
+
+  return data;
 }
 
 /**

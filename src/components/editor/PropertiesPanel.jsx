@@ -12,7 +12,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 /**
  * Panel de propiedades para editar el objeto seleccionado
  */
-export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onToggleControls }) => {
+export const PropertiesPanel = ({ 
+  object, 
+  onUpdate, 
+  onDelete, 
+  onDuplicate, 
+  onToggleControls,
+  toolsPanelCollapsed = false,
+  onToggleToolsPanel = null,
+}) => {
   if (!object) {
     return (
       <div className="w-[320px] border-l border-border bg-card flex flex-col h-full">
@@ -24,8 +32,8 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
             Selecciona un objeto para editar sus propiedades
           </p>
         </div>
-        {onToggleControls && (
-          <div className="p-6 border-t border-border">
+        <div className="p-6 border-t border-border space-y-2">
+          {onToggleControls && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -39,8 +47,26 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
-          </div>
-        )}
+          )}
+          {onToggleToolsPanel && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant={toolsPanelCollapsed ? "outline" : "default"} 
+                    className="w-full" 
+                    onClick={onToggleToolsPanel}
+                  >
+                    🗻 {toolsPanelCollapsed ? 'Expandir' : 'Colapsar'} Panel de Herramientas
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{toolsPanelCollapsed ? 'Expandir' : 'Colapsar'} el panel de herramientas</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+        </div>
       </div>
     );
   }

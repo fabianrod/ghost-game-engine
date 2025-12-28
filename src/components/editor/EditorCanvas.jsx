@@ -1,6 +1,6 @@
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Sky, TransformControls, Grid, useGLTF } from '@react-three/drei';
-import { Terrain } from '../game/Terrain';
+import { TerrainWithEditor } from '../terrain/TerrainWithEditor';
 import { SceneObject } from '../game/SceneObject';
 import { ColliderCylinder } from './ColliderCylinder';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
@@ -20,6 +20,10 @@ export const EditorCanvas = ({
   transformMode = 'translate',
   snapEnabled = true,
   snapSize = 1,
+  terrainHeightmap = null,
+  onTerrainHeightmapChange = null,
+  showTerrainEditor = false,
+  terrainPaintSettings = null,
 }) => {
   const orbitControlsRef = useRef();
   const transformingObjectIdRef = useRef(null);
@@ -80,7 +84,13 @@ export const EditorCanvas = ({
         />
 
         {/* Terreno (sin física en editor, solo visualización) */}
-        <Terrain hasPhysics={false} />
+        <TerrainWithEditor
+          hasPhysics={false}
+          heightmap={terrainHeightmap}
+          onHeightmapChange={onTerrainHeightmapChange}
+          showEditor={showTerrainEditor}
+          paintSettings={terrainPaintSettings}
+        />
 
         {/* Componente para manejar raycasting global */}
         <RaycastHandler

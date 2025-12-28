@@ -63,6 +63,15 @@ export const TERRAIN_CONFIG = {
   COLLIDER_HALF_X: 50,
   COLLIDER_HALF_Y: 0.1,
   COLLIDER_HALF_Z: 50,
+  // Configuración de heightmap
+  SEGMENTS: 64, // Número de segmentos por lado (resolución)
+  MAX_HEIGHT: 10, // Altura máxima del terreno
+  MIN_HEIGHT: -2, // Altura mínima (valles)
+  // Configuración de generación procedural
+  NOISE_SCALE: 0.1,
+  NOISE_OCTAVES: 4,
+  NOISE_PERSISTENCE: 0.5,
+  SMOOTH_ITERATIONS: 1,
 };
 
 // Configuración de objetos

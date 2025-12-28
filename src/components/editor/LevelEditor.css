@@ -9,4 +9,12 @@
 
 .editor-layout {
   @apply flex flex-1 overflow-hidden relative;
+  min-height: 0; /* Permite que el flex funcione correctamente con el panel de herramientas */
+}
+
+.editor-canvas-wrapper {
+  @apply flex-1 relative;
+  min-width: 0; /* Permite que el flex funcione correctamente */
+  background: #000; /* Fondo negro solo para el wrapper, no para el canvas interno */
+  overflow: hidden;
 }

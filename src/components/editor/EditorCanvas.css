@@ -1,8 +1,15 @@
 /* Estilos mínimos para el canvas del editor */
 .editor-canvas {
-  @apply flex-1 relative bg-black cursor-default;
+  @apply relative cursor-default;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
 }
 
 .editor-canvas canvas {
   @apply cursor-default;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }

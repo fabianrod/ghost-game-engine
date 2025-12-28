@@ -4,6 +4,7 @@ import { ObjectLibrary } from './ObjectLibrary';
 import { PropertiesPanel } from './PropertiesPanel';
 import { Toolbar } from './Toolbar';
 import { EditorControls } from './EditorControls';
+import { ToolsPanel } from './ToolsPanel';
 import './LevelEditor.css';
 import { useLevelManager } from '../../hooks/useLevelManager';
 import { EDITOR_CONFIG, LEVEL_DEFAULTS } from '../../constants/gameConstants';
@@ -22,6 +23,9 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [snapSize, setSnapSize] = useState(EDITOR_CONFIG.DEFAULT_SNAP_SIZE);
   const [showEditorControls, setShowEditorControls] = useState(false); // Control de visibilidad del widget (oculto por defecto)
+  const [terrainHeightmap, setTerrainHeightmap] = useState(null);
+  const [terrainPaintSettings, setTerrainPaintSettings] = useState(null);
+  const [toolsPanelCollapsed, setToolsPanelCollapsed] = useState(false); // false = expandido, true = colapsado
 
   // Gestor de niveles
   const {
@@ -128,6 +132,15 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       console.log(`✅ ${editorObjects.length} objetos cargados en el editor`);
       setObjects(editorObjects);
       
+      // Cargar heightmap del terreno si existe
+      if (currentLevel.data.terrain && currentLevel.data.terrain.heightmap) {
+        const heightmapArray = new Float32Array(currentLevel.data.terrain.heightmap);
+        setTerrainHeightmap(heightmapArray);
+        console.log('🗻 Heightmap del terreno cargado:', heightmapArray.length, 'puntos');
+      } else {
+        setTerrainHeightmap(null);
+      }
+      
       // Si había un objeto seleccionado, mantenerlo si todavía existe
       if (currentSelectedId) {
         const stillExists = editorObjects.some(obj => obj.id === currentSelectedId);
@@ -141,12 +154,20 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       // Nivel sin objetos
       console.log('📦 Nivel sin objetos');
       setObjects([]);
+      // Cargar heightmap si existe
+      if (currentLevel.data.terrain && currentLevel.data.terrain.heightmap) {
+        const heightmapArray = new Float32Array(currentLevel.data.terrain.heightmap);
+        setTerrainHeightmap(heightmapArray);
+      } else {
+        setTerrainHeightmap(null);
+      }
       // NO deseleccionar automáticamente - solo si el usuario lo hace explícitamente
       // if (selectedObject) {
       //   setSelectedObject(null);
       // }
     } else if (!currentLevel) {
       console.log('📦 No hay nivel cargado');
+      setTerrainHeightmap(null);
     }
   }, [currentLevel, availableModels]); // Incluir availableModels para normalizar rutas
 
@@ -192,13 +213,13 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const filename = currentLevel?.filename || 'level1.json';
     
     // Preparar datos del nivel sin los IDs internos del editor
-    const levelData = prepareLevelDataForSave(objects, currentLevel?.data);
+    const levelData = prepareLevelDataForSave(objects, currentLevel?.data, terrainHeightmap);
 
     // Guardar en localStorage automáticamente
-    if (saveLevelToStorage(filename, levelData) && objects.length > 0) {
-      console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos)`);
+    if (saveLevelToStorage(filename, levelData) && (objects.length > 0 || terrainHeightmap)) {
+      console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos${terrainHeightmap ? ', con terreno' : ''})`);
     }
-  }, [objects, currentLevel]); // Se ejecuta cada vez que cambian los objetos o el nivel actual
+  }, [objects, currentLevel, terrainHeightmap]); // Se ejecuta cada vez que cambian los objetos, el nivel o el heightmap
 
   // Inicializar con nivel nuevo si no hay nivel cargado
   // Primero intentar cargar desde localStorage si hay cambios sin guardar
@@ -281,8 +302,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Manejar guardado
   const handleSave = useCallback(async () => {
     try {
-      // Preparar datos del nivel
-      const levelData = prepareLevelDataForSave(objects, currentLevel?.data);
+      // Preparar datos del nivel (incluyendo heightmap)
+      const levelData = prepareLevelDataForSave(objects, currentLevel?.data, terrainHeightmap);
 
       // Validar datos
       const validation = validateLevel(levelData);
@@ -310,7 +331,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       alert(`Error al guardar: ${error.message}`);
       throw error;
     }
-  }, [objects, currentLevel, validateLevel, saveLevel, listLevels, levels.length]);
+  }, [objects, currentLevel, terrainHeightmap, validateLevel, saveLevel, listLevels, levels.length]);
 
   // Manejar exportar
   const handleExport = (levelData) => {
@@ -559,15 +580,29 @@ export const LevelEditor = ({ mode, onModeChange }) => {
           onAddObject={handleAddObject}
           onAddCollider={handleAddCollider}
         />
-        <EditorCanvas
-          objects={objects}
-          selectedObject={selectedObject}
-          onSelectObject={setSelectedObject}
-          onUpdateObject={handleUpdateObject}
-          transformMode={transformMode}
-          snapEnabled={snapEnabled}
-          snapSize={snapSize}
-        />
+        <div className="editor-canvas-wrapper">
+          <EditorCanvas
+            objects={objects}
+            selectedObject={selectedObject}
+            onSelectObject={setSelectedObject}
+            onUpdateObject={handleUpdateObject}
+            transformMode={transformMode}
+            snapEnabled={snapEnabled}
+            snapSize={snapSize}
+            terrainHeightmap={terrainHeightmap}
+            onTerrainHeightmapChange={setTerrainHeightmap}
+            showTerrainEditor={!toolsPanelCollapsed}
+            terrainPaintSettings={terrainPaintSettings}
+          />
+          {/* Panel de herramientas posicionado sobre el canvas */}
+          <ToolsPanel
+            collapsed={toolsPanelCollapsed}
+            onToggleCollapse={() => setToolsPanelCollapsed(!toolsPanelCollapsed)}
+            terrainHeightmap={terrainHeightmap}
+            onTerrainHeightmapChange={setTerrainHeightmap}
+            onTerrainPaintSettingsChange={setTerrainPaintSettings}
+          />
+        </div>
         <PropertiesPanel
           object={selectedObjectData}
           onUpdate={(updates) =>
@@ -581,6 +616,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
             selectedObject && handleDuplicateObject(selectedObject)
           }
           onToggleControls={() => setShowEditorControls(!showEditorControls)}
+          toolsPanelCollapsed={toolsPanelCollapsed}
+          onToggleToolsPanel={() => setToolsPanelCollapsed(!toolsPanelCollapsed)}
         />
       </div>
       {/* Controles del editor fuera del editor-layout para posicionamiento fijo */}

@@ -1,0 +1,66 @@
+.tools-panel {
+  @apply border-t border-border bg-card flex flex-col;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 320px;
+  min-height: 200px;
+  max-height: 50vh;
+  z-index: 50;
+  transition: height 0.2s ease-in-out;
+  box-shadow: 0 -4px 6px -1px rgb(0 0 0 / 0.1), 0 -2px 4px -2px rgb(0 0 0 / 0.1);
+  pointer-events: auto;
+  background: hsl(var(--card));
+}
+
+.tools-panel-collapsed {
+  height: 40px;
+  min-height: 40px;
+}
+
+.tools-panel-header {
+  @apply flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30;
+  min-height: 40px;
+  flex-shrink: 0;
+}
+
+.tools-panel-header-left {
+  @apply flex items-center gap-4;
+}
+
+.tools-panel-title {
+  @apply text-sm font-semibold text-foreground;
+  white-space: nowrap;
+}
+
+.tools-panel-toggle {
+  @apply h-8 w-8 flex-shrink-0;
+}
+
+.tools-panel-tabs {
+  @apply flex flex-col flex-1 overflow-hidden;
+}
+
+.tools-panel-tabs-inline {
+  @apply flex items-center;
+}
+
+.tools-panel-tabs-list-inline {
+  @apply h-7 p-0.5;
+  background: transparent;
+}
+
+.tools-panel-tabs-list-inline [role="tab"] {
+  @apply h-6 px-2 text-xs;
+}
+
+.tools-panel-content {
+  @apply flex-1 overflow-y-auto px-6 py-4;
+  margin-top: 0;
+}
+
+.terrain-editor-tab {
+  @apply pb-2;
+}
+
