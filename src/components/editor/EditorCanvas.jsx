@@ -495,6 +495,12 @@ const EditorSceneObject = memo(({
     }
   }, [modelOffset, object.model]);
   
+  // Inicializar currentColliderScaleRef con el valor actual del colliderScale
+  useEffect(() => {
+    const currentColliderScale = object.colliderScale || [0.8, 0.8, 0.8];
+    currentColliderScaleRef.current.set(...currentColliderScale);
+  }, [object.colliderScale]);
+  
   // Memoizar transformaciones para evitar cálculos innecesarios
   const rotationInRadians = useMemo(() => {
     return object.rotation.map((deg) => (deg * Math.PI) / 180);
@@ -562,7 +568,7 @@ const EditorSceneObject = memo(({
     }
 
     // Sincronizar posición del grupo de controles del collider con el objeto
-    if (isSelected && object.hasCollider && colliderControlsGroupRef.current && colliderVisualization) {
+    if (isSelected && transformMode === 'collider' && colliderControlsGroupRef.current && colliderVisualization) {
       colliderControlsGroupRef.current.position.copy(groupRef.current.position);
       colliderControlsGroupRef.current.rotation.copy(groupRef.current.rotation);
       colliderControlsGroupRef.current.updateMatrixWorld();
@@ -990,6 +996,7 @@ const EditorSceneObject = memo(({
   const activeColliderAxisRef = useRef(null);
   const initialColliderScaleRef = useRef(new THREE.Vector3());
   const initialColliderMousePosRef = useRef(new THREE.Vector2());
+  const currentColliderScaleRef = useRef(new THREE.Vector3());
 
   // Crear controles de escalamiento simplificados (solo ejes principales)
   useEffect(() => {
@@ -1088,7 +1095,7 @@ const EditorSceneObject = memo(({
     }
   }, [isSelected, transformMode, object.scale]);
 
-  // Crear control visual del collider (esfera central simple)
+  // Crear control visual del collider (similar al control de escalar pero naranja)
   useEffect(() => {
     if (!isSelected || !colliderVisualization || !colliderControlsGroupRef.current || transformMode !== 'collider') {
       // Limpiar controles si no están seleccionados o no tienen collider
@@ -1108,21 +1115,16 @@ const EditorSceneObject = memo(({
       
       group.clear();
 
-      // Tamaños de los controles
-      const handleSize = 0.3;
-      const centerHandleSize = 0.4;
-      const center = colliderVisualization.center;
-      const halfSize = new THREE.Vector3(
-        colliderVisualization.size.x / 2,
-        colliderVisualization.size.y / 2,
-        colliderVisualization.size.z / 2
-      );
+      // Tamaños optimizados para mejor visibilidad y usabilidad (igual que el control de escalar)
+      const axisLength = 2.5; // Longitud de los ejes
+      const handleSize = 0.3; // Tamaño de los handles cuadrados
+      const centerHandleSize = 0.35; // Tamaño del handle central (un poco más grande)
 
-      // Color naranja para los controles del collider
+      // Color naranja para todos los controles del collider
       const colliderColor = 0xff6600;
 
-      // Crear esfera central para escalado uniforme del collider
-      const centerGeometry = new THREE.SphereGeometry(centerHandleSize, 16, 16);
+      // Crear cubo central para escalado proporcional del collider
+      const centerGeometry = new THREE.BoxGeometry(centerHandleSize, centerHandleSize, centerHandleSize);
       const centerMaterial = new THREE.MeshBasicMaterial({ 
         color: colliderColor,
         transparent: true,
@@ -1135,40 +1137,28 @@ const EditorSceneObject = memo(({
       centerHandle.userData.axis = 'uniform';
       group.add(centerHandle);
 
-      // Crear handles en las esquinas del collider para mejor visibilidad
-      // Usar solo las esquinas principales (4 esquinas superiores e inferiores)
-      const cornerPositions = [
-        { x: -1, y: 1, z: -1 },  // Esquina superior trasera izquierda
-        { x: 1, y: 1, z: -1 },   // Esquina superior trasera derecha
-        { x: -1, y: 1, z: 1 },   // Esquina superior delantera izquierda
-        { x: 1, y: 1, z: 1 },    // Esquina superior delantera derecha
-        { x: -1, y: -1, z: -1 }, // Esquina inferior trasera izquierda
-        { x: 1, y: -1, z: -1 },  // Esquina inferior trasera derecha
-        { x: -1, y: -1, z: 1 },  // Esquina inferior delantera izquierda
-        { x: 1, y: -1, z: 1 },   // Esquina inferior delantera derecha
-      ];
+      // Crear controles para cada eje (solo ejes y handles cuadrados) - similar al control de escalar
+      ['x', 'y', 'z'].forEach((axis) => {
+        const direction = new THREE.Vector3();
+        direction[axis] = 1;
 
-      cornerPositions.forEach((corner) => {
-        // Línea desde el centro hasta la esquina
+        // Línea del eje (simple y limpia)
         const lineGeometry = new THREE.BufferGeometry().setFromPoints([
           new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(
-            corner.x * halfSize.x * object.scale[0],
-            corner.y * halfSize.y * object.scale[1],
-            corner.z * halfSize.z * object.scale[2]
-          ),
+          direction.clone().multiplyScalar(axisLength),
         ]);
         const lineMaterial = new THREE.LineBasicMaterial({ 
           color: colliderColor, 
           linewidth: 2,
           transparent: true,
-          opacity: 0.6
+          opacity: 0.7
         });
         const line = new THREE.Line(lineGeometry, lineMaterial);
         line.userData.isColliderControl = true;
+        line.userData.axis = axis;
         group.add(line);
 
-        // Handle en la esquina
+        // Handle interactivo cuadrado al final del eje
         const handleGeometry = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
         const handleMaterial = new THREE.MeshBasicMaterial({ 
           color: colliderColor,
@@ -1176,14 +1166,10 @@ const EditorSceneObject = memo(({
           opacity: 0.9,
         });
         const handle = new THREE.Mesh(handleGeometry, handleMaterial);
-        handle.position.set(
-          (center.x + corner.x * halfSize.x) * object.scale[0],
-          (center.y + corner.y * halfSize.y) * object.scale[1],
-          (center.z + corner.z * halfSize.z) * object.scale[2]
-        );
+        handle.position.copy(direction.clone().multiplyScalar(axisLength));
         handle.userData.isColliderControl = true;
         handle.userData.isHandle = true;
-        handle.userData.axis = 'uniform';
+        handle.userData.axis = axis;
         group.add(handle);
       });
 
@@ -1429,8 +1415,8 @@ const EditorSceneObject = memo(({
             event.stopPropagation();
             
             const currentColliderScale = object.colliderScale || [0.8, 0.8, 0.8];
-            // Siempre escala uniforme (todos los controles escalan uniformemente)
-            activeColliderAxisRef.current = 'uniform';
+            // Detectar qué eje se está arrastrando (similar al control de escalar)
+            activeColliderAxisRef.current = selectedIntersect.object.userData.axis || 'uniform';
             initialColliderScaleRef.current.set(...currentColliderScale);
             initialColliderMousePosRef.current.set(event.clientX, event.clientY);
             isTransforming.current = true;
@@ -1456,22 +1442,53 @@ const EditorSceneObject = memo(({
         const deltaY = initialColliderMousePosRef.current.y - currentMousePos.y; // Invertido: arriba aumenta, abajo disminuye
         
         // Factor de escalamiento basado en el movimiento vertical del mouse
+        // Más intuitivo: mover hacia arriba aumenta, mover hacia abajo disminuye
         const sensitivity = 0.01;
         const scaleDelta = deltaY * sensitivity;
         const scaleFactor = 1 + scaleDelta;
         
-        const currentColliderScale = object.colliderScale || [0.8, 0.8, 0.8];
-        const newColliderScale = new THREE.Vector3(...currentColliderScale);
+        const newColliderScale = initialColliderScaleRef.current.clone();
         
-        // Escalado uniforme (siempre con la esfera central)
-        newColliderScale.multiplyScalar(scaleFactor);
+        // Escalado proporcional (uniforme) o por eje individual (similar al control de escalar)
+        if (activeColliderAxisRef.current === 'uniform') {
+          // Escalar todos los ejes proporcionalmente
+          newColliderScale.multiplyScalar(scaleFactor);
+          
+          // Aplicar snap si está habilitado
+          if (snapEnabled) {
+            newColliderScale.x = Math.round(newColliderScale.x / 0.1) * 0.1;
+            newColliderScale.y = Math.round(newColliderScale.y / 0.1) * 0.1;
+            newColliderScale.z = Math.round(newColliderScale.z / 0.1) * 0.1;
+          }
+          
+          // Limitar escala mínima y máxima (aplicar a todos los ejes)
+          const minScale = Math.min(newColliderScale.x, newColliderScale.y, newColliderScale.z);
+          const maxScale = Math.max(newColliderScale.x, newColliderScale.y, newColliderScale.z);
+          
+          if (minScale < 0.1) {
+            const factor = 0.1 / minScale;
+            newColliderScale.multiplyScalar(factor);
+          } else if (maxScale > 5) {
+            const factor = 5 / maxScale;
+            newColliderScale.multiplyScalar(factor);
+          }
+        } else {
+          // Escalar solo el eje seleccionado
+          newColliderScale[activeColliderAxisRef.current] *= scaleFactor;
 
-        // Limitar escala mínima y máxima
-        newColliderScale.x = Math.max(0.1, Math.min(5, newColliderScale.x));
-        newColliderScale.y = Math.max(0.1, Math.min(5, newColliderScale.y));
-        newColliderScale.z = Math.max(0.1, Math.min(5, newColliderScale.z));
+          // Aplicar snap si está habilitado
+          if (snapEnabled) {
+            newColliderScale[activeColliderAxisRef.current] = Math.round(newColliderScale[activeColliderAxisRef.current] / 0.1) * 0.1;
+          }
 
-        // Actualizar el estado inmediatamente para ver el cambio visual
+          // Limitar escala mínima y máxima
+          newColliderScale[activeColliderAxisRef.current] = Math.max(0.1, Math.min(5, newColliderScale[activeColliderAxisRef.current]));
+        }
+
+        // Actualizar el ref del colliderScale actual
+        currentColliderScaleRef.current.copy(newColliderScale);
+
+        // Actualizar el estado inmediatamente
         onUpdate({
           colliderScale: [newColliderScale.x, newColliderScale.y, newColliderScale.z],
         });
@@ -1539,7 +1556,7 @@ const EditorSceneObject = memo(({
         window.removeEventListener('mouseup', handleMouseUp);
         canvas.removeEventListener('click', handleClick, true);
       };
-    }, [isSelected, object.hasCollider, object.colliderScale, colliderVisualization, camera, gl, onUpdate, orbitControlsRef, transformMode, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
+    }, [isSelected, object.hasCollider, object.colliderScale, object.scale, colliderVisualization, modelBoundingBox, camera, gl, onUpdate, orbitControlsRef, transformMode, object.id, transformingObjectIdRef, lastTransformEndTimeRef, snapEnabled]);
     
     return null;
   };
@@ -1605,33 +1622,6 @@ const EditorSceneObject = memo(({
           </mesh>
         )}
 
-        {/* Visualización del collider cuando está seleccionado y está en modo collider */}
-        {isSelected && colliderVisualization && transformMode === 'collider' && (
-          <mesh 
-            position={[
-              colliderVisualization.center.x * object.scale[0],
-              colliderVisualization.center.y * object.scale[1],
-              colliderVisualization.center.z * object.scale[2]
-            ]}
-            frustumCulled={false}
-          >
-            <boxGeometry 
-              args={[
-                colliderVisualization.size.x,
-                colliderVisualization.size.y,
-                colliderVisualization.size.z
-              ]} 
-            />
-            <meshBasicMaterial
-              color="#ff6600"
-              transparent
-              opacity={0.3}
-              wireframe={false}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-            />
-          </mesh>
-        )}
       </group>
 
       {/* Componente para manejar interacción con controles de escalamiento */}
