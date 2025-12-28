@@ -518,20 +518,21 @@ const EditorSceneObject = memo(({
       // Deshabilitar actualización automática de matriz para mejor rendimiento
       groupRef.current.matrixAutoUpdate = true; // Mantener true para TransformControls
       
-      // Si el objeto está en [0,0,0] y tenemos offset calculado, ajustar Y
-      let initialY = object.position[1];
-      if (object.position[0] === 0 && object.position[1] === 0 && object.position[2] === 0 && minYOffsetRef.current !== 0) {
-        initialY = minYOffsetRef.current;
-        hasAdjustedInitialPosition.current = true;
+      // Aplicar offset visualmente: la posición guardada es la "base", pero visualmente aplicamos el offset
+      // Esto asegura que el editor y el juego usen la misma lógica de posicionamiento
+      let visualY = object.position[1];
+      if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        // La posición guardada es la base, aplicamos el offset visualmente
+        visualY = object.position[1] + minYOffsetRef.current;
       }
       
-      groupRef.current.position.set(object.position[0], initialY, object.position[2]);
+      groupRef.current.position.set(object.position[0], visualY, object.position[2]);
       groupRef.current.rotation.set(...rotationInRadians);
       groupRef.current.scale.set(...object.scale);
       groupRef.current.updateMatrixWorld();
       
-      // Actualizar cache
-      lastPositionRef.current.set(object.position[0], initialY, object.position[2]);
+      // Actualizar cache con la posición visual
+      lastPositionRef.current.set(object.position[0], visualY, object.position[2]);
       lastRotationRef.current.set(...rotationInRadians);
       lastScaleRef.current.set(...object.scale);
     }
@@ -540,23 +541,22 @@ const EditorSceneObject = memo(({
   // Ajustar posición Y cuando se calcula el offset (para objetos recién agregados)
   useEffect(() => {
     if (groupRef.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && !hasAdjustedInitialPosition.current) {
-      // Si el objeto está en [0,0,0] (recién agregado), ajustar Y al terreno
+      // Si el objeto está en [0,0,0] (recién agregado), ajustar visualmente pero guardar posición base
       if (object.position[0] === 0 && object.position[1] === 0 && object.position[2] === 0) {
-        const adjustedY = minYOffsetRef.current;
-        groupRef.current.position.y = adjustedY;
+        // Aplicar offset visualmente
+        const visualY = minYOffsetRef.current;
+        groupRef.current.position.y = visualY;
         groupRef.current.updateMatrixWorld();
         
-        // Actualizar el estado del objeto con la posición ajustada
-        onUpdate({
-          position: [0, adjustedY, 0],
-        });
+        // Guardar posición base (0) - el offset se aplicará en el modo juego también
+        // No actualizar el estado, mantener posición base en [0,0,0]
         
-        // Actualizar cache
-        lastPositionRef.current.y = adjustedY;
+        // Actualizar cache con posición visual
+        lastPositionRef.current.y = visualY;
         hasAdjustedInitialPosition.current = true;
       }
     }
-  }, [modelOffset, object.model, object.scale, onUpdate]); // Recalcular cuando se calcula el offset
+  }, [modelOffset, object.model, object.scale]); // Recalcular cuando se calcula el offset
 
   // Sincronizar cuando cambia el objeto externamente (pero no cuando se está arrastrando)
   // Usar useFrame para sincronización suave y eficiente
@@ -574,13 +574,13 @@ const EditorSceneObject = memo(({
     if (isTransforming.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && transformMode !== 'scale') {
       const currentY = groupRef.current.position.y;
       if (!isDraggingY.current) {
-        // Durante arrastre horizontal, forzar Y al offset para evitar que se hunda
+        // Durante arrastre horizontal, forzar Y visual al offset (posición base 0 + offset)
         if (Math.abs(currentY - minYOffsetRef.current) > 0.01) {
           groupRef.current.position.y = minYOffsetRef.current;
           groupRef.current.updateMatrixWorld();
         }
       } else {
-        // Durante arrastre vertical, asegurar que Y no baje del offset mínimo
+        // Durante arrastre vertical, asegurar que Y visual no baje del offset mínimo
         if (currentY < minYOffsetRef.current) {
           groupRef.current.position.y = minYOffsetRef.current;
           groupRef.current.updateMatrixWorld();
@@ -602,9 +602,14 @@ const EditorSceneObject = memo(({
     
     // Comparar con valores anteriores usando comparación directa (más eficiente que .equals())
     const posX = object.position[0];
-    const posY = object.position[1];
+    let posY = object.position[1];
     const posZ = object.position[2];
     const lastPos = lastPositionRef.current;
+    
+    // Aplicar offset visualmente: la posición guardada es la base, aplicamos el offset para visualización
+    if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+      posY = object.position[1] + minYOffsetRef.current;
+    }
     
     const posChanged = 
       Math.abs(posX - lastPos.x) > 0.001 ||
@@ -738,11 +743,12 @@ const EditorSceneObject = memo(({
         
         if (isMovingInY) {
           // El usuario está moviendo en Y, usar la posición Y actual pero asegurar que esté sobre el terreno
+          // La posición visual ya incluye el offset, así que solo aseguramos que no baje del mínimo
           isDraggingY.current = true;
           snappedY = Math.max(snappedY, minYOffsetRef.current);
         } else {
           // El usuario está moviendo horizontalmente, mantener el objeto sobre el terreno
-          // Forzar Y al offset calculado para evitar que se hunda
+          // La posición visual debe ser el offset (posición base 0 + offset)
           snappedY = minYOffsetRef.current;
           isDraggingY.current = false;
         }
@@ -838,10 +844,11 @@ const EditorSceneObject = memo(({
         // Solo permitir movimiento en Y si el usuario estaba explícitamente moviendo en Y
         if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
           if (isDraggingY.current) {
-            // El usuario estaba moviendo en Y, mantener la posición Y pero asegurar que esté sobre el terreno
+            // El usuario estaba moviendo en Y, mantener la posición Y visual pero asegurar que esté sobre el terreno
             snappedY = Math.max(snappedY, minYOffsetRef.current);
           } else {
             // El usuario estaba moviendo horizontalmente, mantener sobre el terreno
+            // La posición visual debe ser el offset (posición base 0 + offset)
             snappedY = minYOffsetRef.current;
           }
         }
@@ -866,10 +873,18 @@ const EditorSceneObject = memo(({
       lastScaleRef.current.set(scale.x, scale.y, scale.z);
 
       // Actualizar estado UNA SOLA VEZ al finalizar drag
+      // IMPORTANTE: Guardar posición base (sin offset) para que coincida con el modo juego
+      // La posición visual incluye el offset, pero guardamos la posición base
+      let basePositionY = position.y;
+      if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        // Restar el offset para obtener la posición base
+        basePositionY = position.y - minYOffsetRef.current;
+      }
+      
       // Usar requestAnimationFrame para evitar que el RaycastHandler deseleccione
       requestAnimationFrame(() => {
         onUpdate({
-          position: [position.x, position.y, position.z],
+          position: [position.x, basePositionY, position.z],
           rotation: rotationDegrees,
           scale: [scale.x, scale.y, scale.z],
         });
