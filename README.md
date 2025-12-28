@@ -1,6 +1,6 @@
 # Zombie FPS Game
 
-Un juego FPS desarrollado con React, Three.js y React Three Fiber.
+Un game engine desarrollado con React, Three.js y React Three Fiber.
 
 ## 🚀 Características
 
