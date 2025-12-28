@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { GameScene } from './components/game/Scene';
 import { LevelEditor } from './components/editor/LevelEditor';
+import { Toaster } from '@/components/ui/toaster';
 import './App.css';
 
 /**
@@ -64,6 +65,7 @@ function App() {
       ) : (
         <LevelEditor mode={mode} onModeChange={setMode} />
       )}
+      <Toaster />
     </div>
   );
 }

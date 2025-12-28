@@ -1,11 +1,8 @@
+/* Estilos mínimos para el canvas del editor */
 .editor-canvas {
-  flex: 1;
-  position: relative;
-  background: #000;
-  cursor: default;
+  @apply flex-1 relative bg-black cursor-default;
 }
 
 .editor-canvas canvas {
-  cursor: default !important;
+  @apply cursor-default;
 }
-
