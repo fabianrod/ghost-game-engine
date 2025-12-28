@@ -177,3 +177,11 @@
   background: #3a3a3a;
 }
 
+.property-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #888;
+  font-style: italic;
+  line-height: 1.4;
+}
+

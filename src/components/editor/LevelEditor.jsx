@@ -79,10 +79,11 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Cargar objetos del nivel actual
   useEffect(() => {
     if (currentLevel && currentLevel.data && currentLevel.data.objects) {
-      // Convertir objetos del nivel a formato del editor (agregar id)
+      // Convertir objetos del nivel a formato del editor (agregar id y colliderScale por defecto)
       const editorObjects = currentLevel.data.objects.map((obj, index) => ({
         ...obj,
         id: `obj-${index}-${Date.now()}-${Math.random()}`,
+        colliderScale: obj.colliderScale || [0.8, 0.8, 0.8], // Asegurar que tenga colliderScale por defecto (más ajustado)
       }));
       setObjects(editorObjects);
     } else if (currentLevel && currentLevel.data) {
@@ -318,6 +319,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       castShadow: true,
       receiveShadow: true,
       hasCollider: true,
+      colliderScale: [0.8, 0.8, 0.8], // Escala del collider (multiplicador del tamaño base) - más ajustado por defecto
     };
     setObjects([...objects, newObject]);
     setSelectedObject(newObject.id);

@@ -46,6 +46,7 @@ export const LevelLoader = ({ levelPath, levelData }) => {
             castShadow={obj.castShadow !== false}
             receiveShadow={obj.receiveShadow !== false}
             hasCollider={obj.hasCollider !== false}
+            colliderScale={obj.colliderScale || [0.8, 0.8, 0.8]}
           />
         );
       })}

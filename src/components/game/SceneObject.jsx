@@ -14,6 +14,7 @@ import * as THREE from 'three';
  * @param {boolean} props.receiveShadow - Si el objeto recibe sombras (opcional, por defecto true)
  * @param {boolean} props.hasCollider - Si el objeto tiene colisión física (opcional, por defecto true)
  * @param {boolean} props.autoAdjustY - Si ajusta automáticamente la posición Y (opcional, por defecto true)
+ * @param {Array} props.colliderScale - Escala del collider [x, y, z] como multiplicador del tamaño base (opcional, por defecto [0.8, 0.8, 0.8])
  */
 export const SceneObject = ({ 
   model,
@@ -23,7 +24,8 @@ export const SceneObject = ({
   castShadow = true,
   receiveShadow = true,
   hasCollider = true,
-  autoAdjustY = true
+  autoAdjustY = true,
+  colliderScale = [0.8, 0.8, 0.8]
 }) => {
   // Cargar el modelo GLB
   const { scene } = useGLTF(model);
@@ -48,6 +50,13 @@ export const SceneObject = ({
   // Calcular el tamaño del collider basado en el bounding box
   const size = boundingBox.getSize(new THREE.Vector3());
   const center = boundingBox.getCenter(new THREE.Vector3());
+  
+  // Aplicar la escala personalizada del collider
+  const colliderSize = new THREE.Vector3(
+    size.x * scale[0] * colliderScale[0],
+    size.y * scale[1] * colliderScale[1],
+    size.z * scale[2] * colliderScale[2]
+  );
 
   // Convertir rotación de grados a radianes si es necesario
   const rotationInRadians = useMemo(() => {
@@ -83,9 +92,9 @@ export const SceneObject = ({
     return (
       <RigidBody type="fixed" position={adjustedPosition}>
         {objectContent}
-        {/* Collider basado en el tamaño del modelo */}
+        {/* Collider basado en el tamaño del modelo con escala personalizada */}
         <CuboidCollider 
-          args={[size.x * scale[0] / 2, size.y * scale[1] / 2, size.z * scale[2] / 2]}
+          args={[colliderSize.x / 2, colliderSize.y / 2, colliderSize.z / 2]}
           position={[center.x * scale[0], center.y * scale[1], center.z * scale[2]]}
         />
       </RigidBody>

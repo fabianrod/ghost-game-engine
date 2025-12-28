@@ -163,6 +163,60 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
         </label>
       </div>
 
+      {object.hasCollider && (
+        <div className="property-group">
+          <label>Escala del Collider</label>
+          <div className="vector-input">
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.colliderScale ? object.colliderScale[0] : 0.8}
+              onChange={(e) => {
+                const currentScale = object.colliderScale || [0.8, 0.8, 0.8];
+                handleChange('colliderScale', [
+                  parseFloat(e.target.value) || 1,
+                  currentScale[1],
+                  currentScale[2],
+                ]);
+              }}
+              placeholder="X"
+            />
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.colliderScale ? object.colliderScale[1] : 0.8}
+              onChange={(e) => {
+                const currentScale = object.colliderScale || [0.8, 0.8, 0.8];
+                handleChange('colliderScale', [
+                  currentScale[0],
+                  parseFloat(e.target.value) || 1,
+                  currentScale[2],
+                ]);
+              }}
+              placeholder="Y"
+            />
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.colliderScale ? object.colliderScale[2] : 0.8}
+              onChange={(e) => {
+                const currentScale = object.colliderScale || [0.8, 0.8, 0.8];
+                handleChange('colliderScale', [
+                  currentScale[0],
+                  currentScale[1],
+                  parseFloat(e.target.value) || 1,
+                ]);
+              }}
+              placeholder="Z"
+            />
+          </div>
+          <p className="property-hint">Multiplicador del tamaño base del collider</p>
+        </div>
+      )}
+
       <div className="property-actions">
         <button className="duplicate-button" onClick={onDuplicate}>
           📋 Duplicar Objeto
