@@ -1437,10 +1437,47 @@ const EditorColliderObject = memo(({
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
+  const scaleControlsGroupRef = useRef();
 
   // Estado de arrastre
   const isDragging = useRef(false);
   const isTransforming = useRef(false);
+
+  // Estado local para las dimensiones del collider (se actualiza durante el arrastre)
+  // Validar que object.scale sea un array válido antes de usarlo
+  const getValidScale = () => {
+    if (!object.scale || !Array.isArray(object.scale) || object.scale.length < 3) {
+      return [1, 1, 1];
+    }
+    // Validar que todos los valores sean números válidos
+    const valid = object.scale.map(d => {
+      if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+        return 1;
+      }
+      return d;
+    });
+    return valid;
+  };
+  const [currentDimensions, setCurrentDimensions] = useState(getValidScale());
+
+  // Refs para el control de escalamiento personalizado
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const mouseRef = useRef(new THREE.Vector2());
+  const activeAxisRef = useRef(null);
+  // Validar object.scale antes de inicializar el ref
+  const getInitialScale = () => {
+    if (!object.scale || !Array.isArray(object.scale) || object.scale.length < 3) {
+      return [1, 1, 1];
+    }
+    return object.scale.map(d => {
+      if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+        return 1;
+      }
+      return d;
+    });
+  };
+  const initialDimensionsRef = useRef(new THREE.Vector3(...getInitialScale()));
+  const initialMousePosRef = useRef(new THREE.Vector2());
 
   // Cache para valores anteriores
   const lastPositionRef = useRef(new THREE.Vector3(...object.position));
@@ -1448,11 +1485,13 @@ const EditorColliderObject = memo(({
   const lastScaleRef = useRef(new THREE.Vector3(...object.scale));
 
   // Inicializar posición del grupo
+  // IMPORTANTE: Para colliders, NO aplicar escala al grupo porque la geometría ya usa las dimensiones directamente
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.position.set(...object.position);
       groupRef.current.rotation.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
-      groupRef.current.scale.set(...object.scale);
+      // NO aplicar escala al grupo para colliders - la geometría maneja las dimensiones directamente
+      groupRef.current.scale.set(1, 1, 1);
       groupRef.current.updateMatrixWorld();
       
       lastPositionRef.current.set(...object.position);
@@ -1504,7 +1543,7 @@ const EditorColliderObject = memo(({
     return updateData;
   }, [snapEnabled, transformMode, applySnap]);
 
-  // Manejar cambios en TransformControls
+  // Manejar cambios en TransformControls (solo para translate y rotate)
   const handleObjectChange = useCallback(() => {
     if (!groupRef.current || !isTransforming.current) return;
     applyTransformSnap();
@@ -1513,6 +1552,13 @@ const EditorColliderObject = memo(({
   // Sincronizar cuando cambia el objeto externamente
   useFrame(() => {
     if (!groupRef.current) return;
+    
+    // Sincronizar posición del grupo de controles de escalamiento con el collider
+    if (isSelected && transformMode === 'scale' && scaleControlsGroupRef.current) {
+      scaleControlsGroupRef.current.position.copy(groupRef.current.position);
+      scaleControlsGroupRef.current.rotation.copy(groupRef.current.rotation);
+      scaleControlsGroupRef.current.updateMatrixWorld();
+    }
     
     // NO sincronizar durante arrastre para evitar parpadeo
     if (isDragging.current || isTransforming.current) {
@@ -1545,8 +1591,11 @@ const EditorColliderObject = memo(({
       Math.abs(object.scale[1] - lastScaleRef.current.y) > 0.001 ||
       Math.abs(object.scale[2] - lastScaleRef.current.z) > 0.001;
 
+    // NO aplicar escala al grupo para colliders - la geometría maneja las dimensiones directamente
+    // Solo actualizar el cache para detectar cambios
     if (scaleChanged) {
-      groupRef.current.scale.set(...object.scale);
+      // Mantener escala del grupo en 1,1,1 para colliders
+      groupRef.current.scale.set(1, 1, 1);
       lastScaleRef.current.set(...object.scale);
     }
 
@@ -1599,15 +1648,32 @@ const EditorColliderObject = memo(({
         (rotation.z * 180) / Math.PI,
       ];
 
+      // Para colliders, las dimensiones se manejan directamente (no a través de la escala del grupo)
+      // Si estamos escalando, SIEMPRE usar el ref que tiene las dimensiones más recientes
+      // El ref se actualiza en tiempo real durante el arrastre, así que siempre está actualizado
+      let finalScale = object.scale || [1, 1, 1];
+      if (transformMode === 'scale') {
+        // Usar el ref que tiene las dimensiones más recientes (siempre actualizado durante el arrastre)
+        finalScale = [
+          initialDimensionsRef.current.x,
+          initialDimensionsRef.current.y,
+          initialDimensionsRef.current.z
+        ];
+        
+        // Asegurar que currentDimensions también esté actualizado para consistencia visual
+        setCurrentDimensions(finalScale);
+      }
+
       lastPositionRef.current.set(position.x, position.y, position.z);
       lastRotationRef.current.set(rotation.x, rotation.y, rotation.z);
-      lastScaleRef.current.set(scale.x, scale.y, scale.z);
+      lastScaleRef.current.set(finalScale[0], finalScale[1], finalScale[2]);
 
+      // Para colliders, usar finalScale (dimensiones directas)
       requestAnimationFrame(() => {
         onUpdate({
           position: [position.x, position.y, position.z],
           rotation: rotationDegrees,
-          scale: [scale.x, scale.y, scale.z],
+          scale: finalScale,
         });
       });
     }
@@ -1674,13 +1740,382 @@ const EditorColliderObject = memo(({
     }
   }, [isSelected]);
 
+  // Sincronizar currentDimensions con object.scale cuando no está transformando
+  useEffect(() => {
+    if (!isTransforming.current && !isDragging.current) {
+      // Validar que object.scale sea válido
+      let newScale = [1, 1, 1];
+      if (object.scale && Array.isArray(object.scale) && object.scale.length >= 3) {
+        newScale = object.scale.map(d => {
+          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+            return 1;
+          }
+          return d;
+        });
+      }
+      setCurrentDimensions(newScale);
+      initialDimensionsRef.current.set(...newScale);
+    }
+  }, [object.scale]);
+  
+  // Forzar actualización del collider visual cuando currentDimensions cambia durante el escalado
+  useEffect(() => {
+    // Esto fuerza un re-render cuando currentDimensions cambia
+    // El key en renderColliderVisual también ayuda a forzar la actualización
+  }, [currentDimensions]);
+
+  // Crear controles de escalamiento para colliders
+  useEffect(() => {
+    if (!isSelected || transformMode !== 'scale' || !groupRef.current || !scaleControlsGroupRef.current) {
+      if (scaleControlsGroupRef.current) {
+        try {
+          scaleControlsGroupRef.current.clear();
+        } catch (e) {
+          // Ignorar errores al limpiar
+        }
+      }
+      return;
+    }
+
+    try {
+      const group = scaleControlsGroupRef.current;
+      if (!group) return;
+      
+      group.clear();
+
+      // Tamaños optimizados
+      const axisLength = 2.5;
+      const handleSize = 0.3;
+      const centerHandleSize = 0.35;
+
+      // Colores para cada eje
+      const colors = {
+        x: 0xff0000,
+        y: 0x00ff00,
+        z: 0x0000ff,
+      };
+      const centerColor = 0xffffff;
+
+      // Cubo central para escalado proporcional
+      const centerGeometry = new THREE.BoxGeometry(centerHandleSize, centerHandleSize, centerHandleSize);
+      const centerMaterial = new THREE.MeshBasicMaterial({ 
+        color: centerColor,
+        transparent: true,
+        opacity: 0.9,
+      });
+      const centerHandle = new THREE.Mesh(centerGeometry, centerMaterial);
+      centerHandle.userData.axis = 'uniform';
+      centerHandle.userData.isControl = true;
+      centerHandle.userData.isHandle = true;
+      centerHandle.userData.isCenter = true;
+      group.add(centerHandle);
+
+      // Controles para cada eje
+      ['x', 'y', 'z'].forEach((axis) => {
+        const direction = new THREE.Vector3();
+        direction[axis] = 1;
+
+        // Línea del eje
+        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0, 0, 0),
+          direction.clone().multiplyScalar(axisLength),
+        ]);
+        const lineMaterial = new THREE.LineBasicMaterial({ 
+          color: colors[axis], 
+          linewidth: 2,
+          transparent: true,
+          opacity: 0.7
+        });
+        const line = new THREE.Line(lineGeometry, lineMaterial);
+        line.userData.axis = axis;
+        line.userData.isControl = true;
+        group.add(line);
+
+        // Handle interactivo
+        const handleGeometry = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
+        const handleMaterial = new THREE.MeshBasicMaterial({ 
+          color: colors[axis],
+          transparent: true,
+          opacity: 0.9,
+        });
+        const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+        handle.position.copy(direction.clone().multiplyScalar(axisLength));
+        handle.userData.axis = axis;
+        handle.userData.isControl = true;
+        handle.userData.isHandle = true;
+        group.add(handle);
+      });
+
+      return () => {
+        if (group) {
+          try {
+            group.clear();
+          } catch (e) {
+            // Ignorar errores al limpiar
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error creando controles de escalamiento para collider:', error);
+    }
+  }, [isSelected, transformMode, object.scale]);
+
+  // Componente para manejar interacción con controles de escalamiento de colliders
+  const ColliderScaleControlsInteraction = () => {
+    const { camera, gl } = useThree();
+    
+    useEffect(() => {
+      if (!isSelected || transformMode !== 'scale' || !scaleControlsGroupRef.current || !groupRef.current || !camera || !gl) {
+        return;
+      }
+
+      const handleMouseDown = (event) => {
+        if (!scaleControlsGroupRef.current || !groupRef.current) return;
+
+        const rect = gl.domElement.getBoundingClientRect();
+        mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        raycasterRef.current.setFromCamera(mouseRef.current, camera);
+        const intersects = raycasterRef.current.intersectObjects(
+          scaleControlsGroupRef.current.children,
+          true
+        );
+
+        if (intersects.length > 0) {
+          let selectedIntersect = intersects[0];
+          const centerIntersect = intersects.find(int => int.object.userData.isCenter);
+          if (centerIntersect) {
+            selectedIntersect = centerIntersect;
+          } else {
+            const handleIntersect = intersects.find(int => int.object.userData.isHandle);
+            if (handleIntersect) {
+              selectedIntersect = handleIntersect;
+            }
+          }
+
+          if (selectedIntersect.object.userData.isControl) {
+            event.preventDefault();
+            event.stopPropagation();
+            activeAxisRef.current = selectedIntersect.object.userData.axis;
+            
+            // Validar currentDimensions antes de usarlo
+            const validCurrentDims = currentDimensions.map((d, i) => {
+              if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+                console.warn(`[ColliderScaleControls] Dimensión ${i} inválida al iniciar escalado:`, d, 'usando valor del objeto');
+                return (object.scale && Array.isArray(object.scale) && object.scale[i] !== null && typeof object.scale[i] === 'number') 
+                  ? object.scale[i] 
+                  : 1;
+              }
+              return d;
+            });
+            
+            initialDimensionsRef.current.set(...validCurrentDims);
+            initialMousePosRef.current.set(event.clientX, event.clientY);
+            isTransforming.current = true;
+            isDragging.current = true;
+
+            if (orbitControlsRef.current) {
+              orbitControlsRef.current.enabled = false;
+            }
+
+            if (transformingObjectIdRef) {
+              transformingObjectIdRef.current = object.id;
+            }
+
+            handleDragStart();
+          }
+        }
+      };
+
+      const handleMouseMove = (event) => {
+        if (!activeAxisRef.current || !isTransforming.current) return;
+
+        // Validar que initialDimensionsRef tenga valores válidos
+        const initialDims = initialDimensionsRef.current.toArray();
+        const validInitialDims = initialDims.map((d, i) => {
+          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+            console.warn(`[ColliderScaleControls] Dimensión inicial ${i} inválida:`, d, 'usando valor del objeto');
+            return (object.scale && Array.isArray(object.scale) && object.scale[i] !== null && typeof object.scale[i] === 'number') 
+              ? object.scale[i] 
+              : 1;
+          }
+          return d;
+        });
+        
+        // Actualizar el ref con valores válidos si había problemas
+        if (validInitialDims.some((d, i) => d !== initialDims[i])) {
+          initialDimensionsRef.current.set(...validInitialDims);
+        }
+
+        const currentMousePos = new THREE.Vector2(event.clientX, event.clientY);
+        const deltaY = initialMousePosRef.current.y - currentMousePos.y;
+        
+        // Sensibilidad mejorada: más responsiva y precisa
+        // Sensibilidad adaptativa: más sensible para valores grandes
+        const baseSensitivity = 0.015;
+        const currentSize = Math.max(...validInitialDims);
+        // Aumentar sensibilidad para valores grandes (más fácil de escalar colliders grandes)
+        const adaptiveSensitivity = (currentSize > 10 && isFinite(currentSize)) ? baseSensitivity * 2 : baseSensitivity;
+        const scaleDelta = deltaY * adaptiveSensitivity;
+        const scaleFactor = 1 + scaleDelta;
+        
+        // Validar que scaleFactor sea válido
+        if (!isFinite(scaleFactor) || isNaN(scaleFactor) || scaleFactor <= 0) {
+          console.warn('[ColliderScaleControls] scaleFactor inválido:', scaleFactor, 'usando 1.0');
+          return; // No actualizar si el factor es inválido
+        }
+        
+        const newDimensions = initialDimensionsRef.current.clone();
+        
+        if (activeAxisRef.current === 'uniform') {
+          // Escalar todos los ejes proporcionalmente
+          newDimensions.multiplyScalar(scaleFactor);
+          
+          if (snapEnabled) {
+            newDimensions.x = Math.round(newDimensions.x / 0.1) * 0.1;
+            newDimensions.y = Math.round(newDimensions.y / 0.1) * 0.1;
+            newDimensions.z = Math.round(newDimensions.z / 0.1) * 0.1;
+          }
+          
+          const minScale = Math.min(newDimensions.x, newDimensions.y, newDimensions.z);
+          const maxScale = Math.max(newDimensions.x, newDimensions.y, newDimensions.z);
+          
+          if (minScale < 0.1) {
+            const factor = 0.1 / minScale;
+            newDimensions.multiplyScalar(factor);
+          } else if (maxScale > 1000) { // Límite máximo muy alto para colliders grandes (muros, límites de nivel)
+            const factor = 1000 / maxScale;
+            newDimensions.multiplyScalar(factor);
+          }
+        } else {
+          // Escalar solo el eje seleccionado
+          newDimensions[activeAxisRef.current] *= scaleFactor;
+
+          if (snapEnabled) {
+            newDimensions[activeAxisRef.current] = Math.round(newDimensions[activeAxisRef.current] / 0.1) * 0.1;
+          }
+
+          newDimensions[activeAxisRef.current] = Math.max(0.1, Math.min(1000, newDimensions[activeAxisRef.current])); // Límite máximo muy alto para colliders grandes
+        }
+
+        // Validar que las nuevas dimensiones sean válidas antes de actualizar
+        const newDims = [newDimensions.x, newDimensions.y, newDimensions.z];
+        const validNewDims = newDims.map((d, i) => {
+          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+            console.warn(`[ColliderScaleControls] Dimensión ${i} inválida durante escalado:`, d, 'manteniendo valor anterior');
+            return initialDimensionsRef.current.toArray()[i];
+          }
+          return d;
+        });
+        
+        setCurrentDimensions(validNewDims);
+        
+        // También actualizar el ref para mantener consistencia
+        initialDimensionsRef.current.set(...validNewDims);
+      };
+
+      const handleMouseUp = (event) => {
+        if (activeAxisRef.current) {
+          if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+          
+          // Capturar las dimensiones finales ANTES de limpiar activeAxisRef
+          // El ref ya tiene las dimensiones más recientes actualizadas en handleMouseMove
+          const finalDimensions = [
+            initialDimensionsRef.current.x,
+            initialDimensionsRef.current.y,
+            initialDimensionsRef.current.z
+          ];
+          
+          activeAxisRef.current = null;
+          
+          if (lastTransformEndTimeRef) {
+            lastTransformEndTimeRef.current = Date.now();
+          }
+          
+          // Actualizar currentDimensions con las dimensiones finales
+          setCurrentDimensions(finalDimensions);
+          
+          // Llamar handleDragEnd - usará el ref que ya tiene las dimensiones correctas
+          handleDragEnd();
+          
+          setTimeout(() => {
+            isTransforming.current = false;
+            isDragging.current = false;
+            if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
+              setTimeout(() => {
+                if (transformingObjectIdRef.current === object.id) {
+                  transformingObjectIdRef.current = null;
+                }
+              }, 2500);
+            }
+          }, 500);
+
+          if (orbitControlsRef.current) {
+            orbitControlsRef.current.enabled = true;
+          }
+        }
+      };
+
+      const handleClick = (event) => {
+        if (activeAxisRef.current !== null || isTransforming.current || isDragging.current) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      };
+
+      const canvas = gl.domElement;
+      canvas.addEventListener('mousedown', handleMouseDown);
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      canvas.addEventListener('click', handleClick, true);
+
+      return () => {
+        canvas.removeEventListener('mousedown', handleMouseDown);
+        window.removeEventListener('mousemove', handleMouseMove);
+        window.removeEventListener('mouseup', handleMouseUp);
+        canvas.removeEventListener('click', handleClick, true);
+      };
+    }, [isSelected, transformMode, camera, gl, snapEnabled, currentDimensions, handleDragStart, handleDragEnd, orbitControlsRef, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
+    
+    return null;
+  };
+
   // Renderizar collider visual según el tipo
+  // Usar currentDimensions cuando está en modo scale para actualización en tiempo real
   const renderColliderVisual = () => {
+    // Determinar qué dimensiones usar: currentDimensions si estamos en modo scale, sino object.scale
+    // Cuando estamos escalando, currentDimensions se actualiza en tiempo real
+    let dimensions = (transformMode === 'scale') ? currentDimensions : (object.scale || [1, 1, 1]);
+    
+    // Validar que dimensions sea un array válido y no null
+    if (!Array.isArray(dimensions) || dimensions.length < 3) {
+      console.warn('[EditorColliderObject] Dimensiones inválidas, usando valores por defecto:', dimensions);
+      dimensions = [1, 1, 1];
+    }
+    
+    // Validar que todos los elementos sean números válidos
+    const safeDimensions = dimensions.map((d, index) => {
+      if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
+        console.warn(`[EditorColliderObject] Dimensión ${index} inválida:`, d);
+        return 1;
+      }
+      return Math.max(0.1, d);
+    });
+    
+    // Crear key solo después de validar
+    const dimensionsKey = `${safeDimensions[0].toFixed(3)}-${safeDimensions[1].toFixed(3)}-${safeDimensions[2].toFixed(3)}`;
+    
     if (object.colliderType === 'cylinder') {
       return (
         <ColliderCylinder
+          key={`cylinder-${dimensionsKey}`}
           position={[0, 0, 0]}
-          scale={object.scale || [1, 1, 1]}
+          scale={safeDimensions}
           rotation={object.rotation || [0, 0, 0]}
           isSelected={isSelected}
           color="#ff6b00"
@@ -1688,19 +2123,38 @@ const EditorColliderObject = memo(({
         />
       );
     } else if (object.colliderType === 'box') {
-      const scale = object.scale || [1, 1, 1];
+      // Para el collider de caja, usar las dimensiones directamente
+      // Estas dimensiones deben coincidir EXACTAMENTE con el collider físico en ColliderObject.jsx
+      // El collider físico usa: CuboidCollider args={[scale[0]/2, scale[1]/2, scale[2]/2]}
+      // CuboidCollider espera half-extents (la mitad de cada dimensión)
+      // Entonces la geometría visual debe usar las dimensiones completas: [x, y, z]
+      // Esto asegura que el collider visual y físico tengan exactamente el mismo tamaño
       return (
-        <mesh>
-          <boxGeometry args={scale} />
-          <meshBasicMaterial
-            color="#ff6b00"
-            transparent
-            opacity={isSelected ? 0.4 : 0.2}
-            wireframe={true}
-            side={THREE.DoubleSide}
-            depthWrite={false}
-          />
-        </mesh>
+        <group key={`box-${dimensionsKey}`}>
+          {/* Caras sólidas semi-transparentes para mejor visibilidad */}
+          <mesh>
+            <boxGeometry args={safeDimensions} />
+            <meshBasicMaterial
+              color="#ff6b00"
+              transparent
+              opacity={isSelected ? 0.3 : 0.2}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+          {/* Wireframe más visible para mejor definición de bordes */}
+          <mesh>
+            <boxGeometry args={dimensions} />
+            <meshBasicMaterial
+              color="#ff6b00"
+              transparent
+              opacity={isSelected ? 1.0 : 0.8}
+              wireframe={true}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
       );
     }
     return null;
@@ -1738,14 +2192,14 @@ const EditorColliderObject = memo(({
         {/* Visualización del collider */}
         {renderColliderVisual()}
 
-        {/* Highlight cuando está seleccionado */}
+        {/* Highlight cuando está seleccionado - usar dimensiones del collider */}
         {isSelected && (
           <mesh position={[0, 0, 0]} frustumCulled={false}>
-            <boxGeometry args={[3, 3, 3]} />
+            <boxGeometry args={object.scale || [1, 1, 1]} />
             <meshBasicMaterial
-              color="#ff6b00"
+              color="#00ff00"
               transparent
-              opacity={0.15}
+              opacity={0.1}
               wireframe
               depthWrite={false}
             />
@@ -1753,8 +2207,19 @@ const EditorColliderObject = memo(({
         )}
       </group>
 
-      {/* TransformControls */}
-      {isSelected && groupReadyRef.current && groupRef.current && (
+      {/* Componente para manejar interacción con controles de escalamiento */}
+      {isSelected && transformMode === 'scale' && <ColliderScaleControlsInteraction />}
+      
+      {/* Controles de escalamiento visuales */}
+      {isSelected && groupReadyRef.current && groupRef.current && transformMode === 'scale' && (
+        <group 
+          ref={scaleControlsGroupRef}
+          visible={true}
+        />
+      )}
+
+      {/* TransformControls - solo para translate y rotate (no para scale) */}
+      {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && (
         <>
           <TransformControls
             ref={transformRef}

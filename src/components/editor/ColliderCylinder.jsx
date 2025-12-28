@@ -40,25 +40,59 @@ export const ColliderCylinder = ({
   }
 
   const { radius, halfHeight, height } = colliderParams;
+  
+  // Validar que todos los valores sean números válidos y finitos
+  const validRadius = typeof radius === 'number' && isFinite(radius) && radius > 0 ? radius : 1;
+  const validHalfHeight = typeof halfHeight === 'number' && isFinite(halfHeight) && halfHeight > 0 ? halfHeight : 0.5;
+  const validHeight = typeof height === 'number' && isFinite(height) && height > 0 ? height : 1;
+  
+  // Validar que no sean valores extremos que puedan causar problemas de renderizado
+  const safeRadius = Math.max(0.01, Math.min(1000, validRadius));
+  const safeHalfHeight = Math.max(0.01, Math.min(1000, validHalfHeight));
+  const safeHeight = Math.max(0.01, Math.min(1000, validHeight));
+  
   const opacity = isSelected ? 0.4 : 0.2;
 
   // Renderizar como cilindro wireframe (simplificado para el editor)
   // Para cápsula, mostramos la altura total que incluye las semiesferas
-  const displayHeight = showCapsuleShape ? (halfHeight * 2 + radius * 2) : height;
+  const displayHeight = showCapsuleShape ? (safeHalfHeight * 2 + safeRadius * 2) : safeHeight;
   
-  return (
-    <group position={position} rotation={rotationInRadians}>
-      <mesh>
-        <cylinderGeometry args={[radius, radius, displayHeight, 32]} />
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={opacity}
-          wireframe={true}
-          side={THREE.DoubleSide}
-          depthWrite={false}
-        />
-      </mesh>
-    </group>
-  );
+  // Validar que displayHeight sea válido
+  const safeDisplayHeight = Math.max(0.01, Math.min(2000, displayHeight));
+  
+  try {
+    return (
+      <group position={position} rotation={rotationInRadians}>
+        <mesh>
+          <cylinderGeometry args={[safeRadius, safeRadius, safeDisplayHeight, 32]} />
+          <meshBasicMaterial
+            color={color}
+            transparent
+            opacity={opacity}
+            wireframe={true}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+    );
+  } catch (error) {
+    console.error('[ColliderCylinder] Error renderizando cilindro:', error);
+    // Retornar un cilindro por defecto seguro en caso de error
+    return (
+      <group position={position} rotation={rotationInRadians}>
+        <mesh>
+          <cylinderGeometry args={[1, 1, 2, 32]} />
+          <meshBasicMaterial
+            color={color}
+            transparent
+            opacity={opacity}
+            wireframe={true}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+    );
+  }
 };
