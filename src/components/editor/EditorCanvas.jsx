@@ -21,6 +21,8 @@ export const EditorCanvas = ({
 }) => {
   const orbitControlsRef = useRef();
   const transformingObjectIdRef = useRef(null);
+  // Ref compartido para rastrear el tiempo exacto de la última transformación
+  const lastTransformEndTimeRef = useRef(0);
 
   return (
     <div className="editor-canvas">
@@ -85,6 +87,7 @@ export const EditorCanvas = ({
           selectedObject={selectedObject}
           key={`raycast-${objects.length}`} // Forzar re-render cuando cambia el número de objetos
           transformingObjectIdRef={transformingObjectIdRef}
+          lastTransformEndTimeRef={lastTransformEndTimeRef}
         />
 
         {/* Objetos del nivel (sin física en editor) */}
@@ -100,6 +103,7 @@ export const EditorCanvas = ({
             snapEnabled={snapEnabled}
             snapSize={snapSize}
             transformingObjectIdRef={transformingObjectIdRef}
+            lastTransformEndTimeRef={lastTransformEndTimeRef}
           />
         ))}
       </Canvas>
@@ -111,7 +115,7 @@ export const EditorCanvas = ({
  * Componente para manejar raycasting y selección de objetos
  * Optimizado para evitar bloqueos y mejorar rendimiento
  */
-const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingObjectIdRef }) => {
+const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingObjectIdRef, lastTransformEndTimeRef }) => {
   const { camera, scene, gl } = useThree();
   const raycaster = useRef(new THREE.Raycaster());
   const mouse = useRef(new THREE.Vector2());
@@ -169,20 +173,39 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
         // Guardar el tiempo del final del arrastre
         lastDragEndTimeRef.current = Date.now();
         wasTransformingRef.current = true; // Marcar que se estaba transformando
+        
+        // Si hay un objeto siendo transformado, NO limpiar transformingObjectIdRef aquí
+        // Dejarlo que EditorSceneObject lo maneje
+        const transformingId = transformingObjectIdRef.current;
+        
         // Mantener el flag activo por más tiempo para evitar deselección
         setTimeout(() => {
           isDraggingRef.current = false;
         }, 1000); // Aumentado a 1 segundo
+        
         // Resetear el flag de transformación después de más tiempo
+        // PERO solo si EditorSceneObject no lo está usando
         setTimeout(() => {
           wasTransformingRef.current = false;
-          transformingObjectIdRef.current = null;
+          // Solo limpiar si EditorSceneObject no lo ha cambiado (no está transformando)
+          // Si EditorSceneObject está manejando la transformación, no tocar el ref
+          if (transformingObjectIdRef.current === transformingId && transformingId !== null) {
+            // Esperar un poco más antes de limpiar, para dar tiempo a EditorSceneObject
+            setTimeout(() => {
+              // Verificar una vez más antes de limpiar
+              if (transformingObjectIdRef.current === transformingId) {
+                transformingObjectIdRef.current = null;
+              }
+            }, 500);
+          }
         }, 2000); // 2 segundos de protección después de transformar
       } else {
         // Si no hubo arrastre, resetear inmediatamente
-        isDraggingRef.current = false;
-        wasTransformingRef.current = false;
-        transformingObjectIdRef.current = null;
+        // PERO solo si no hay un objeto siendo transformado por EditorSceneObject
+        if (transformingObjectIdRef.current === null) {
+          isDraggingRef.current = false;
+          wasTransformingRef.current = false;
+        }
       }
       mouseDownTimeRef.current = 0;
     };
@@ -218,21 +241,32 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
     // Si el click ocurre muy poco tiempo después de terminar un arrastre, ignorarlo completamente
     // Esto evita que el click del mouseUp deseleccione el objeto
     const timeSinceLastDrag = Date.now() - lastDragEndTimeRef.current;
+    const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
     
-    // Si hay un objeto seleccionado y se acaba de terminar una transformación,
-    // NO procesar el click para evitar deselección accidental
-    // También verificar si el objeto seleccionado es el que se estaba transformando
-    if (selectedObject && (timeSinceLastDrag < 2000 || wasTransformingRef.current)) {
-      // Si se estaba transformando recientemente, ignorar completamente el click
-      // Esto mantiene el objeto seleccionado con sus controles visibles
-      // Especialmente si el objeto seleccionado es el que se estaba transformando
-      if (transformingObjectIdRef.current === null || transformingObjectIdRef.current === selectedObject) {
+    // Si hay un objeto seleccionado, ser MUY agresivo en prevenir la deselección
+    if (selectedObject) {
+      // NUNCA deseleccionar si el objeto seleccionado es el que se estaba transformando
+      if (transformingObjectIdRef.current === selectedObject) {
+        console.log('[RaycastHandler] Ignorando click - objeto se está transformando');
+        return; // Ignorar completamente el click
+      }
+      
+      // NUNCA deseleccionar si se acaba de terminar una transformación (menos de 3 segundos)
+      if (timeSinceLastTransform < 3000) {
+        console.log('[RaycastHandler] Ignorando click - transformación reciente');
+        return;
+      }
+      
+      // Si se estaba transformando recientemente (menos de 2 segundos), ignorar el click
+      if (wasTransformingRef.current && timeSinceLastDrag < 2000) {
+        console.log('[RaycastHandler] Ignorando click - arrastre reciente');
         return;
       }
     }
     
     // Si no hay objeto seleccionado o pasó suficiente tiempo, procesar normalmente
-    if (timeSinceLastDrag < 500) {
+    // Pero solo si no se estaba transformando recientemente
+    if (timeSinceLastDrag < 500 || wasTransformingRef.current || timeSinceLastTransform < 3000) {
       return;
     }
 
@@ -268,25 +302,41 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
         }
       }
 
-      // Si no se clickeó ningún objeto, deseleccionar SOLO si:
-      // 1. No hay un objeto seleccionado actualmente, O
-      // 2. Pasó suficiente tiempo desde la última transformación (más de 2 segundos)
-      // Y el objeto seleccionado no es el que se estaba transformando
-      // Esto evita deselección accidental después de transformar
-      const shouldDeselect = !selectedObject || 
-        (timeSinceLastDrag >= 2000 && 
-         !wasTransformingRef.current && 
-         (transformingObjectIdRef.current === null || transformingObjectIdRef.current !== selectedObject));
+      // SOLUCIÓN SIMPLE: Solo deseleccionar si:
+      // 1. NO hay un objeto seleccionado (click en espacio vacío sin selección previa), O
+      // 2. Se hizo click explícito en espacio vacío Y pasó suficiente tiempo desde la última transformación (más de 1 segundo)
+      // NUNCA deseleccionar automáticamente durante o después de una transformación
+      const isCurrentlyTransforming = transformingObjectIdRef.current === selectedObject;
+      const recentlyTransformed = timeSinceLastTransform < 1000 || isCurrentlyTransforming || wasTransformingRef.current;
       
-      if (shouldDeselect) {
+      // Solo deseleccionar si es un click explícito en espacio vacío Y no se acaba de transformar
+      if (!selectedObject) {
+        // No hay objeto seleccionado, no hacer nada (ya está deseleccionado)
+        return;
+      }
+      
+      // Hay un objeto seleccionado - solo deseleccionar si:
+      // - Es un click explícito en espacio vacío (no se clickeó ningún objeto)
+      // - Y NO se acaba de transformar
+      if (intersects.length === 0 && !recentlyTransformed && timeSinceLastDrag >= 1000) {
+        console.log('[RaycastHandler] Deseleccionando - click explícito en espacio vacío');
         onSelectObject(null);
+      } else {
+        // Mantener seleccionado - no deseleccionar automáticamente
+        console.log('[RaycastHandler] Manteniendo selección', {
+          selectedObject,
+          intersects: intersects.length,
+          recentlyTransformed,
+          timeSinceLastTransform,
+          isCurrentlyTransforming
+        });
       }
     } catch (error) {
       console.error('Error en raycasting:', error);
     } finally {
       isProcessing.current = false;
     }
-  }, [camera, gl, onSelectObject, selectedObject, transformingObjectIdRef]);
+  }, [camera, gl, onSelectObject, selectedObject, transformingObjectIdRef, lastTransformEndTimeRef]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -296,6 +346,40 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
     };
   }, [gl, handleClick]);
 
+  return null;
+};
+
+/**
+ * Componente para interceptar clicks en TransformControls y prevenir deselección
+ */
+const TransformControlsClickInterceptor = ({ transformRef, objectId, isTransforming, lastTransformEndTimeRef, transformingObjectIdRef }) => {
+  const { gl } = useThree();
+  
+  useEffect(() => {
+    if (!transformRef.current) return;
+    
+    const handleClick = (event) => {
+      // Si se acaba de terminar una transformación, prevenir el click
+      const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
+      
+      if (timeSinceLastTransform < 3000 || isTransforming.current || transformingObjectIdRef.current === objectId) {
+        console.log('[TransformControlsInterceptor] Previniendo click - transformación reciente');
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return false;
+      }
+    };
+    
+    const canvas = gl.domElement;
+    // Usar capture phase para interceptar antes que otros listeners
+    canvas.addEventListener('click', handleClick, true);
+    
+    return () => {
+      canvas.removeEventListener('click', handleClick, true);
+    };
+  }, [gl, transformRef, objectId, isTransforming, lastTransformEndTimeRef, transformingObjectIdRef]);
+  
   return null;
 };
 
@@ -314,6 +398,7 @@ const EditorSceneObject = memo(({
   snapEnabled = true,
   snapSize = 1,
   transformingObjectIdRef,
+  lastTransformEndTimeRef,
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
@@ -796,18 +881,33 @@ const EditorSceneObject = memo(({
     
     pendingUpdateRef.current = null;
     
+    // IMPORTANTE: Registrar el tiempo exacto de finalización de la transformación
+    // Esto permite que RaycastHandler sepa exactamente cuándo se terminó de transformar
+    if (lastTransformEndTimeRef) {
+      lastTransformEndTimeRef.current = Date.now();
+      console.log('[EditorSceneObject] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
+    }
+    
+    // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
+    // para que RaycastHandler sepa que este objeto se acaba de transformar
+    // y no lo deseleccione cuando se procese el evento click del mouseup
+    
     // Marcar como no transformando DESPUÉS de actualizar el estado
     // Usar un delay más largo para asegurar que el estado se actualice y React re-renderice
     // Mantener los flags activos por más tiempo para evitar deselección
     setTimeout(() => {
       isTransforming.current = false;
       isDragging.current = false;
-      // Limpiar el ref después de un tiempo adicional para permitir que el RaycastHandler lo use
+      // NO limpiar transformingObjectIdRef inmediatamente
+      // Mantenerlo activo por más tiempo (3 segundos total) para que RaycastHandler
+      // pueda detectar que este objeto se acaba de transformar y no lo deseleccione
       setTimeout(() => {
+        // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
         if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
           transformingObjectIdRef.current = null;
+          console.log('[EditorSceneObject] Limpiando transformingObjectIdRef');
         }
-      }, 1500); // Limpiar después de 1.5 segundos adicionales
+      }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
     }, 500); // Aumentado a 500ms para dar más tiempo
     
     if (orbitControlsRef.current) {
@@ -1230,18 +1330,29 @@ const EditorSceneObject = memo(({
         
         activeAxisRef.current = null;
         
+        // Registrar el tiempo de finalización ANTES de llamar handleDragEnd
+        if (lastTransformEndTimeRef) {
+          lastTransformEndTimeRef.current = Date.now();
+          console.log('[ScaleControls] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
+        }
+        
         handleDragEnd();
         
         // Mantener los flags activos por más tiempo para evitar deselección
+        // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
+        // para que RaycastHandler sepa que este objeto se acaba de transformar
         setTimeout(() => {
           isTransforming.current = false;
           isDragging.current = false;
-          // Limpiar el ref después de un tiempo adicional
+          // NO limpiar transformingObjectIdRef inmediatamente
+          // Mantenerlo activo por más tiempo (3 segundos total) para que RaycastHandler
+          // pueda detectar que este objeto se acaba de transformar y no lo deseleccione
           setTimeout(() => {
+            // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
             if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
               transformingObjectIdRef.current = null;
             }
-          }, 1500);
+          }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
         }, 500);
 
         if (orbitControlsRef.current) {
@@ -1272,7 +1383,7 @@ const EditorSceneObject = memo(({
         window.removeEventListener('mouseup', handleMouseUp);
         canvas.removeEventListener('click', handleClick, true);
       };
-    }, [isSelected, transformMode, camera, gl, snapEnabled, applyTransformSnap, handleDragStart, handleDragEnd, orbitControlsRef, object.id, transformingObjectIdRef]);
+    }, [isSelected, transformMode, camera, gl, snapEnabled, applyTransformSnap, handleDragStart, handleDragEnd, orbitControlsRef, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
     
     return null;
   };
@@ -1377,16 +1488,27 @@ const EditorSceneObject = memo(({
           
           activeColliderAxisRef.current = null;
           
+          // Registrar el tiempo de finalización
+          if (lastTransformEndTimeRef) {
+            lastTransformEndTimeRef.current = Date.now();
+            console.log('[ColliderControls] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
+          }
+          
           // Mantener los flags activos por más tiempo para evitar deselección
+          // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
+          // para que RaycastHandler sepa que este objeto se acaba de transformar
           setTimeout(() => {
             isTransforming.current = false;
             isDragging.current = false;
-            // Limpiar el ref después de un tiempo adicional
+            // NO limpiar transformingObjectIdRef inmediatamente
+            // Mantenerlo activo por más tiempo (3 segundos total) para que RaycastHandler
+            // pueda detectar que este objeto se acaba de transformar y no lo deseleccione
             setTimeout(() => {
+              // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
               if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
                 transformingObjectIdRef.current = null;
               }
-            }, 1500);
+            }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
           }, 500);
 
           if (orbitControlsRef.current) {
@@ -1417,7 +1539,7 @@ const EditorSceneObject = memo(({
         window.removeEventListener('mouseup', handleMouseUp);
         canvas.removeEventListener('click', handleClick, true);
       };
-    }, [isSelected, object.hasCollider, object.colliderScale, colliderVisualization, camera, gl, onUpdate, orbitControlsRef, transformMode, object.id, transformingObjectIdRef]);
+    }, [isSelected, object.hasCollider, object.colliderScale, colliderVisualization, camera, gl, onUpdate, orbitControlsRef, transformMode, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
     
     return null;
   };
@@ -1429,6 +1551,15 @@ const EditorSceneObject = memo(({
         onClick={(e) => {
           e.stopPropagation();
           e.delta = 0; // Prevenir doble click
+          
+          // Si se acaba de terminar una transformación, NO procesar el click
+          const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
+          if (timeSinceLastTransform < 3000) {
+            console.log('[EditorSceneObject] Ignorando click en grupo - transformación reciente');
+            e.stopPropagation();
+            return;
+          }
+          
           // Solo seleccionar si no está ya seleccionado o si no estamos arrastrando
           if (!isSelected || (!isDragging.current && !isTransforming.current)) {
             onSelect();
@@ -1527,21 +1658,31 @@ const EditorSceneObject = memo(({
       
       {/* TransformControls - solo para translate y rotate (no para scale ni collider) */}
       {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && transformMode !== 'collider' && (
-        <TransformControls
-          ref={transformRef}
-          object={groupRef.current}
-          mode={transformMode}
-          onObjectChange={handleObjectChange}
-          translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
-          rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null} // Snap de 45 grados para rotación
-          onMouseDown={handleDragStart}
-          onMouseUp={handleDragEnd}
-          showX={true}
-          showY={true}
-          showZ={true}
-          space="world" // Usar espacio mundial para mejor control
-          size={1.2} // Tamaño ligeramente mayor para mejor visibilidad
-        />
+        <>
+          <TransformControls
+            ref={transformRef}
+            object={groupRef.current}
+            mode={transformMode}
+            onObjectChange={handleObjectChange}
+            translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
+            rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null} // Snap de 45 grados para rotación
+            onMouseDown={handleDragStart}
+            onMouseUp={handleDragEnd}
+            showX={true}
+            showY={true}
+            showZ={true}
+            space="world" // Usar espacio mundial para mejor control
+            size={1.2} // Tamaño ligeramente mayor para mejor visibilidad
+          />
+          {/* Interceptar clicks en el TransformControls para prevenir deselección */}
+          <TransformControlsClickInterceptor
+            transformRef={transformRef}
+            objectId={object.id}
+            isTransforming={isTransforming}
+            lastTransformEndTimeRef={lastTransformEndTimeRef}
+            transformingObjectIdRef={transformingObjectIdRef}
+          />
+        </>
       )}
     </>
   );

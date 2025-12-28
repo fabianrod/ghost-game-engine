@@ -79,18 +79,50 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Cargar objetos del nivel actual
   useEffect(() => {
     if (currentLevel && currentLevel.data && currentLevel.data.objects) {
-      // Convertir objetos del nivel a formato del editor (agregar id y colliderScale por defecto)
-      const editorObjects = currentLevel.data.objects.map((obj, index) => ({
-        ...obj,
-        id: `obj-${index}-${Date.now()}-${Math.random()}`,
-        colliderScale: obj.colliderScale || [0.8, 0.8, 0.8], // Asegurar que tenga colliderScale por defecto (más ajustado)
-      }));
+      // Preservar la selección actual y los IDs existentes
+      const currentSelectedId = selectedObject;
+      const existingObjectsMap = new Map();
+      objects.forEach(obj => {
+        // Crear un mapa de objetos existentes usando posición como clave (más estable que ID)
+        const key = `${obj.position[0]},${obj.position[1]},${obj.position[2]}`;
+        existingObjectsMap.set(key, obj.id);
+      });
+      
+      // Convertir objetos del nivel a formato del editor
+      // IMPORTANTE: Preservar IDs existentes usando posición como referencia
+      const editorObjects = currentLevel.data.objects.map((obj, index) => {
+        const key = `${obj.position[0]},${obj.position[1]},${obj.position[2]}`;
+        const existingId = existingObjectsMap.get(key);
+        
+        return {
+          ...obj,
+          // Preservar ID existente si encontramos un objeto en la misma posición
+          // De lo contrario, generar uno nuevo solo si no tiene ID
+          id: existingId || obj.id || `obj-${index}-${Date.now()}-${Math.random()}`,
+          colliderScale: obj.colliderScale || [0.8, 0.8, 0.8],
+        };
+      });
+      
       setObjects(editorObjects);
+      
+      // Si había un objeto seleccionado, mantenerlo si todavía existe
+      if (currentSelectedId) {
+        const stillExists = editorObjects.some(obj => obj.id === currentSelectedId);
+        if (!stillExists) {
+          // El objeto ya no existe, pero NO deseleccionar automáticamente
+          // Solo deseleccionar si el usuario lo hace explícitamente
+          // setSelectedObject(null); // COMENTADO: No deseleccionar automáticamente
+        }
+      }
     } else if (currentLevel && currentLevel.data) {
       // Nivel sin objetos
       setObjects([]);
+      // NO deseleccionar automáticamente - solo si el usuario lo hace explícitamente
+      // if (selectedObject) {
+      //   setSelectedObject(null);
+      // }
     }
-  }, [currentLevel]);
+  }, [currentLevel]); // Remover selectedObject y objects de dependencias para evitar loops infinitos
 
   // Sincronizar con cambios en localStorage (cuando se selecciona un nivel desde App.jsx)
   useEffect(() => {
@@ -110,11 +142,27 @@ export const LevelEditor = ({ mode, onModeChange }) => {
             try {
               const data = JSON.parse(cachedData);
               // Solo actualizar si el nivel es diferente
+              // IMPORTANTE: No actualizar si hay un objeto seleccionado para evitar deselección
               if (!currentLevel || 
                   currentLevel.filename !== filename || 
                   JSON.stringify(currentLevel.data) !== JSON.stringify(data)) {
                 console.log(`🔄 Sincronizando nivel desde localStorage: ${filename}`);
+                // Preservar la selección actual al sincronizar
+                const currentSelectedId = selectedObject;
                 setCurrentLevel({ filename, data });
+                // Restaurar la selección después de un pequeño delay para asegurar que los objetos se carguen
+                if (currentSelectedId) {
+                  setTimeout(() => {
+                    // Verificar que el objeto todavía existe antes de restaurar la selección
+                    const levelData = JSON.parse(cachedData);
+                    const objectExists = levelData.objects?.some((obj, idx) => {
+                      // Los IDs se generan dinámicamente, así que necesitamos una forma de identificar el objeto
+                      // Por ahora, no restauramos la selección automáticamente para evitar problemas
+                      return false;
+                    });
+                    // No restaurar automáticamente para evitar problemas con IDs dinámicos
+                  }, 100);
+                }
               }
             } catch (parseErr) {
               console.warn('Error parseando datos de localStorage:', parseErr);
@@ -130,7 +178,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const interval = setInterval(checkForLevelChanges, 1000);
     
     return () => clearInterval(interval);
-  }, [currentLevel, setCurrentLevel]);
+  }, [currentLevel, setCurrentLevel, selectedObject]);
 
   // Guardar automáticamente en localStorage cada vez que cambian los objetos
   // Esto permite que los cambios se reflejen inmediatamente en el modo juego
