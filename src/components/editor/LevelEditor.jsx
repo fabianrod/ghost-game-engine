@@ -453,6 +453,92 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     }
   };
 
+  // Listener para eliminar objetos con la tecla Suprimir
+  useEffect(() => {
+    // Función para eliminar el objeto seleccionado
+    const deleteSelectedObject = () => {
+      if (!selectedObject) return;
+      
+      console.log('[LevelEditor] Eliminando objeto:', selectedObject);
+      setObjects((prevObjects) => {
+        const filtered = prevObjects.filter((obj) => obj.id !== selectedObject);
+        console.log('[LevelEditor] Objetos después de eliminar:', filtered.length);
+        return filtered;
+      });
+      setSelectedObject(null);
+    };
+
+    const handleKeyDown = (event) => {
+      // Solo procesar si hay un objeto seleccionado
+      if (!selectedObject) {
+        return;
+      }
+      
+      // Verificar que no estemos escribiendo en un input o textarea
+      const target = event.target;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      
+      // Detectar tecla Delete o Suprimir
+      // Verificar tanto event.key como event.code para compatibilidad
+      const isDeleteKey = 
+        event.key === 'Delete' || 
+        event.key === 'Backspace' || 
+        event.code === 'Delete' ||
+        event.keyCode === 46 || // Delete key code
+        event.keyCode === 8;    // Backspace key code
+      
+      if (isDeleteKey) {
+        console.log('[LevelEditor] Tecla Delete detectada');
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        deleteSelectedObject();
+        return false;
+      }
+    };
+
+    // Agregar listener a window con fase de captura para interceptar antes que otros listeners
+    window.addEventListener('keydown', handleKeyDown, true);
+    
+    // También agregar listener al canvas si existe (para cuando el canvas tiene el foco)
+    // Usar un pequeño delay para asegurar que el canvas esté renderizado
+    const setupCanvasListener = () => {
+      const canvas = document.querySelector('canvas');
+      if (canvas) {
+        canvas.addEventListener('keydown', handleKeyDown, true);
+        // Asegurar que el canvas pueda recibir eventos de teclado
+        if (!canvas.hasAttribute('tabindex')) {
+          canvas.setAttribute('tabindex', '0');
+        }
+        return canvas;
+      }
+      return null;
+    };
+    
+    // Intentar configurar el listener del canvas inmediatamente y con un pequeño delay
+    let canvas = setupCanvasListener();
+    const timeoutId = setTimeout(() => {
+      if (!canvas) {
+        canvas = setupCanvasListener();
+      }
+    }, 100);
+    
+    // Limpiar listeners al desmontar
+    return () => {
+      clearTimeout(timeoutId);
+      window.removeEventListener('keydown', handleKeyDown, true);
+      if (canvas) {
+        canvas.removeEventListener('keydown', handleKeyDown, true);
+      }
+    };
+  }, [selectedObject]); // Solo selectedObject como dependencia
+
   // Duplicar un objeto
   const handleDuplicateObject = (objectId) => {
     const objectToDuplicate = objects.find((obj) => obj.id === objectId);
