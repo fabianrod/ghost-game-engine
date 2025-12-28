@@ -71,57 +71,6 @@ export const EditorControls = ({
     };
   }, [isDragging, dragOffset]);
 
-  useEffect(() => {
-    const handleKeyPress = (event) => {
-      // Solo procesar si no estamos escribiendo en un input
-      if (
-        event.target.tagName === 'INPUT' ||
-        event.target.tagName === 'TEXTAREA'
-      ) {
-        return;
-      }
-
-      switch (event.key.toLowerCase()) {
-        case 'g':
-          onModeChange('translate');
-          break;
-        case 'r':
-          onModeChange('rotate');
-          break;
-        case 's':
-          onModeChange('scale');
-          break;
-        case 'delete':
-        case 'backspace':
-          if (onDelete) {
-            event.preventDefault();
-            onDelete();
-          }
-          break;
-        default:
-          break;
-      }
-
-      // Atajos con Ctrl
-      if (event.ctrlKey || event.metaKey) {
-        switch (event.key.toLowerCase()) {
-          case 'd':
-            if (onDuplicate) {
-              event.preventDefault();
-              onDuplicate();
-            }
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => {
-      window.removeEventListener('keydown', handleKeyPress);
-    };
-  }, [onModeChange, onDelete, onDuplicate]);
 
   return (
     <div 
@@ -150,9 +99,9 @@ export const EditorControls = ({
             <button
               className={`transform-btn ${transformMode === 'translate' ? 'active' : ''}`}
               onClick={() => onModeChange('translate')}
-              title="Mover (G)"
+              title="Mover (M)"
             >
-              <span className="btn-key">G</span>
+              <span className="btn-key">M</span>
               <span className="btn-label">Mover</span>
             </button>
             <button

@@ -472,7 +472,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     }
   };
 
-  // Listener para eliminar objetos con la tecla Suprimir
+  // Listener para atajos de teclado: eliminar objetos, cambiar modo de transformación, duplicar
   useEffect(() => {
     // Función para eliminar el objeto seleccionado
     const deleteSelectedObject = () => {
@@ -488,8 +488,9 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     };
 
     const handleKeyDown = (event) => {
-      // Solo procesar si hay un objeto seleccionado
-      if (!selectedObject) {
+      // Solo procesar si hay un objeto seleccionado (excepto para algunos atajos globales)
+      const needsSelection = ['m', 'r', 's', 'Delete', 'Backspace'].includes(event.key);
+      if (needsSelection && !selectedObject) {
         return;
       }
       
@@ -503,8 +504,27 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         return;
       }
       
+      const key = event.key.toLowerCase();
+      
+      // Atajos de transformación: M (mover), R (rotar), S (escalar)
+      if (selectedObject) {
+        switch (key) {
+          case 'm':
+            event.preventDefault();
+            setTransformMode('translate');
+            break;
+          case 'r':
+            event.preventDefault();
+            setTransformMode('rotate');
+            break;
+          case 's':
+            event.preventDefault();
+            setTransformMode('scale');
+            break;
+        }
+      }
+      
       // Detectar tecla Delete o Suprimir
-      // Verificar tanto event.key como event.code para compatibilidad
       const isDeleteKey = 
         event.key === 'Delete' || 
         event.key === 'Backspace' || 
@@ -512,13 +532,32 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         event.keyCode === 46 || // Delete key code
         event.keyCode === 8;    // Backspace key code
       
-      if (isDeleteKey) {
+      if (isDeleteKey && selectedObject) {
         console.log('[LevelEditor] Tecla Delete detectada');
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
         deleteSelectedObject();
         return false;
+      }
+      
+      // Atajo para duplicar con Ctrl+D
+      if ((event.ctrlKey || event.metaKey) && key === 'd' && selectedObject) {
+        event.preventDefault();
+        const objectToDuplicate = objects.find((obj) => obj.id === selectedObject);
+        if (objectToDuplicate) {
+          const duplicatedObject = {
+            ...objectToDuplicate,
+            id: `obj-${Date.now()}-${Math.random()}`,
+            position: [
+              objectToDuplicate.position[0] + 2, // Desplazar 2 unidades en X
+              objectToDuplicate.position[1],
+              objectToDuplicate.position[2],
+            ],
+          };
+          setObjects((prevObjects) => [...prevObjects, duplicatedObject]);
+          setSelectedObject(duplicatedObject.id);
+        }
       }
     };
 
@@ -556,7 +595,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         canvas.removeEventListener('keydown', handleKeyDown, true);
       }
     };
-  }, [selectedObject]); // Solo selectedObject como dependencia
+  }, [selectedObject, objects]); // Incluir objects para poder duplicar
 
   // Duplicar un objeto
   const handleDuplicateObject = (objectId) => {
