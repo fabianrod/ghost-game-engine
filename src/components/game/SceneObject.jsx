@@ -42,7 +42,10 @@ export const SceneObject = ({
   // Calcular la altura mínima del modelo (desde el origen)
   const minY = boundingBox.min.y;
   // Ajustar la posición Y para que el modelo esté sobre el terreno (Y=0)
-  // Solo si autoAdjustY está habilitado (útil en el editor para control manual)
+  // IMPORTANTE: La posición guardada es la "base", y aquí aplicamos el mismo offset que en el editor
+  // En el editor: visualY = position[1] + (-minY * scale[1])
+  // En el juego: adjustedY = position[1] - minY * scale[1]
+  // Ambos deben dar el mismo resultado visual
   const adjustedPosition = autoAdjustY 
     ? [position[0], position[1] - minY * scale[1], position[2]]
     : position;

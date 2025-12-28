@@ -118,7 +118,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
           // Preservar ID existente si encontramos un objeto en la misma posición
           // De lo contrario, generar uno nuevo solo si no tiene ID
           id: existingId || obj.id || `obj-${index}-${Date.now()}-${Math.random()}`,
-          colliderScale: obj.colliderScale || [0.8, 0.8, 0.8],
+          // Solo agregar colliderScale a objetos normales, no a colliders
+          ...(obj.type !== 'collider' && { colliderScale: obj.colliderScale || [0.8, 0.8, 0.8] }),
         };
         
         console.log(`  ✓ Objeto ${index}:`, {
@@ -225,10 +226,19 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const filename = currentLevel?.filename || 'level1.json';
     
     // Preparar datos del nivel sin los IDs internos del editor
+    // También eliminar colliderScale de los colliders (solo aplica a objetos normales)
     const levelData = {
       name: currentLevel?.data?.name || 'Nivel Editado',
       description: currentLevel?.data?.description || 'Nivel creado en el editor',
-      objects: objects.map(({ id, ...obj }) => obj),
+      objects: objects.map(({ id, colliderScale, ...obj }) => {
+        // Si es un collider, eliminar colliderScale
+        if (obj.type === 'collider') {
+          const { colliderScale: _, ...colliderObj } = obj;
+          return colliderObj;
+        }
+        // Si es un objeto normal, mantener colliderScale si existe
+        return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
+      }),
     };
 
     // Guardar en localStorage automáticamente
@@ -344,10 +354,19 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   const handleSave = async () => {
     try {
       // Preparar datos del nivel
+      // También eliminar colliderScale de los colliders (solo aplica a objetos normales)
       const levelData = {
         name: currentLevel?.data?.name || 'Nivel Editado',
         description: currentLevel?.data?.description || 'Nivel creado en el editor',
-        objects: objects.map(({ id, ...obj }) => obj),
+        objects: objects.map(({ id, colliderScale, ...obj }) => {
+          // Si es un collider, eliminar colliderScale
+          if (obj.type === 'collider') {
+            const { colliderScale: _, ...colliderObj } = obj;
+            return colliderObj;
+          }
+          // Si es un objeto normal, mantener colliderScale si existe
+          return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
+        }),
       };
 
       // Validar datos

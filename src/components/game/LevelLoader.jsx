@@ -34,6 +34,12 @@ export const LevelLoader = ({ levelPath, levelData }) => {
     return null;
   }
 
+  // Contar colliders para depuración
+  const colliders = level.objects.filter(obj => obj.type === 'collider');
+  if (colliders.length > 0) {
+    console.log(`LevelLoader: Cargando ${colliders.length} collider(s)`, colliders);
+  }
+
   return (
     <>
       {level.objects.map((obj, index) => {
@@ -45,13 +51,23 @@ export const LevelLoader = ({ levelPath, levelData }) => {
 
         // Si es un collider, renderizar ColliderObject (invisible pero con física)
         if (obj.type === 'collider') {
+          const colliderPosition = obj.position || [0, 0, 0];
+          const colliderScale = obj.scale || [1, 1, 1];
+          const colliderRotation = obj.rotation || [0, 0, 0];
+          console.log(`LevelLoader: Renderizando collider ${index}:`, {
+            type: obj.colliderType,
+            position: colliderPosition,
+            scale: colliderScale,
+            rotation: colliderRotation,
+            'VERIFICAR': 'Esta posición debe coincidir con la del editor',
+          });
           return (
             <ColliderObject
               key={`collider-${index}-${obj.id || index}`}
               colliderType={obj.colliderType || 'cylinder'}
-              position={obj.position}
-              scale={obj.scale || [1, 1, 1]}
-              rotation={obj.rotation || [0, 0, 0]}
+              position={colliderPosition}
+              scale={colliderScale}
+              rotation={colliderRotation}
             />
           );
         }

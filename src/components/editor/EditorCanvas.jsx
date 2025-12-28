@@ -5,6 +5,7 @@ import { SceneObject } from '../game/SceneObject';
 import { ColliderCylinder } from './ColliderCylinder';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
+import { calculateCylinderCollider } from '../../utils/colliderUtils';
 import './EditorCanvas.css';
 
 /**
@@ -488,9 +489,11 @@ const EditorSceneObject = memo(({
     if (!modelBoundingBox) return 0;
     const minY = modelBoundingBox.min.y;
     // Calcular el offset Y necesario para que el objeto esté sobre el terreno (Y=0)
-    // Similar a cómo SceneObject calcula: position[1] - minY * scale[1]
+    // IMPORTANTE: Este offset debe ser EXACTAMENTE igual al que se usa en SceneObject
+    // En SceneObject: adjustedPosition[1] = position[1] - minY * scale[1]
+    // En el editor: visualY = position[1] + offset, donde offset = -minY * scale[1]
+    // Por lo tanto: visualY = position[1] - minY * scale[1] (igual que en el juego)
     const offset = -minY * object.scale[1];
-    console.log(`[Editor] Offset calculado (modelo original): minY=${minY.toFixed(3)}, scale=${object.scale[1]}, offset=${offset.toFixed(3)}`);
     return offset;
   }, [modelBoundingBox, object.scale]); // Solo recalcular cuando cambia el modelo o escala
 
@@ -649,6 +652,18 @@ const EditorSceneObject = memo(({
       Math.abs(scaleX - lastScale.x) > 0.001 ||
       Math.abs(scaleY - lastScale.y) > 0.001 ||
       Math.abs(scaleZ - lastScale.z) > 0.001;
+    
+    // IMPORTANTE: Si cambió la escala Y, el offset puede cambiar
+    // El offset se recalcula automáticamente en modelOffset cuando cambia object.scale
+    // Pero necesitamos actualizar la posición Y visual si el offset cambió
+    if (stateScaleChanged && Math.abs(scaleY - lastScale.y) > 0.001) {
+      // El offset ya se recalculó en modelOffset, solo necesitamos actualizar la posición visual
+      if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        const newVisualY = object.position[1] + minYOffsetRef.current;
+        groupRef.current.position.y = newVisualY;
+        lastPositionRef.current.y = newVisualY;
+      }
+    }
     
     // Verificar si el cache coincide con la escala visual actual
     // Si coincide, significa que acabamos de hacer un cambio local que aún no se ha sincronizado con el estado
@@ -1501,15 +1516,17 @@ const EditorColliderObject = memo(({
 
   // Inicializar posición del grupo
   // IMPORTANTE: Para colliders, NO aplicar escala al grupo porque la geometría ya usa las dimensiones directamente
+  // IMPORTANTE: Para colliders, la posición debe ser exactamente object.position (sin offsets)
   useEffect(() => {
     if (groupRef.current) {
-      groupRef.current.position.set(...object.position);
+      // Usar posición exacta del objeto, sin ningún offset
+      groupRef.current.position.set(object.position[0], object.position[1], object.position[2]);
       groupRef.current.rotation.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
       // NO aplicar escala al grupo para colliders - la geometría maneja las dimensiones directamente
       groupRef.current.scale.set(1, 1, 1);
       groupRef.current.updateMatrixWorld();
       
-      lastPositionRef.current.set(...object.position);
+      lastPositionRef.current.set(object.position[0], object.position[1], object.position[2]);
       lastRotationRef.current.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
       lastScaleRef.current.set(...object.scale);
     }
@@ -1586,8 +1603,10 @@ const EditorColliderObject = memo(({
       Math.abs(object.position[2] - lastPositionRef.current.z) > 0.001;
 
     if (posChanged) {
-      groupRef.current.position.set(...object.position);
-      lastPositionRef.current.set(...object.position);
+      // Para colliders, usar posición exacta sin ningún offset
+      groupRef.current.position.set(object.position[0], object.position[1], object.position[2]);
+      lastPositionRef.current.set(object.position[0], object.position[1], object.position[2]);
+      groupRef.current.updateMatrixWorld();
     }
 
     const rotationInRadians = object.rotation.map(deg => (deg * Math.PI) / 180);
@@ -1684,9 +1703,16 @@ const EditorColliderObject = memo(({
       lastScaleRef.current.set(finalScale[0], finalScale[1], finalScale[2]);
 
       // Para colliders, usar finalScale (dimensiones directas)
+      // IMPORTANTE: Usar la posición del grupo directamente, sin ningún offset
+      const savedPosition = [
+        groupRef.current.position.x,
+        groupRef.current.position.y,
+        groupRef.current.position.z
+      ];
+      
       requestAnimationFrame(() => {
         onUpdate({
-          position: [position.x, position.y, position.z],
+          position: savedPosition,
           rotation: rotationDegrees,
           scale: finalScale,
         });
@@ -2126,42 +2152,59 @@ const EditorColliderObject = memo(({
     const dimensionsKey = `${safeDimensions[0].toFixed(3)}-${safeDimensions[1].toFixed(3)}-${safeDimensions[2].toFixed(3)}`;
     
     if (object.colliderType === 'cylinder') {
+      // Calcular parámetros del collider para visualización
+      const colliderParams = calculateCylinderCollider({
+        type: 'cylinder',
+        position: [0, 0, 0],
+        scale: safeDimensions,
+        rotation: [0, 0, 0],
+      });
+
+      if (!colliderParams) {
+        return null;
+      }
+
+      const { radius, halfHeight, height } = colliderParams;
+      const adjustedRadius = height < radius * 2 ? Math.max(0.1, height / 2) : radius;
+      const adjustedHalfHeight = height < radius * 2 ? 0 : Math.max(0, (height - adjustedRadius * 2) / 2);
+      const displayHeight = adjustedHalfHeight * 2 + adjustedRadius * 2;
+      const safeDisplayHeight = Math.max(0.01, Math.min(2000, displayHeight));
+
       return (
-        <ColliderCylinder
-          key={`cylinder-${dimensionsKey}`}
-          position={[0, 0, 0]}
-          scale={safeDimensions}
-          rotation={object.rotation || [0, 0, 0]}
-          isSelected={isSelected}
-          color="#ff6b00"
-          showCapsuleShape={true}
-        />
-      );
-    } else if (object.colliderType === 'box') {
-      // Para el collider de caja, usar las dimensiones directamente
-      // Estas dimensiones deben coincidir EXACTAMENTE con el collider físico en ColliderObject.jsx
-      // El collider físico usa: CuboidCollider args={[scale[0]/2, scale[1]/2, scale[2]/2]}
-      // CuboidCollider espera half-extents (la mitad de cada dimensión)
-      // Entonces la geometría visual debe usar las dimensiones completas: [x, y, z]
-      // Esto asegura que el collider visual y físico tengan exactamente el mismo tamaño
-      return (
-        <group key={`box-${dimensionsKey}`}>
-          {/* Caras sólidas semi-transparentes para mejor visibilidad */}
-          <mesh>
-            <boxGeometry args={safeDimensions} />
+        <group key={`cylinder-${dimensionsKey}`} position={[0, 0, 0]}>
+          {/* RigidBody físico AZUL (solo visualización en editor) */}
+          <mesh position={[0, 0, 0]}>
+            <cylinderGeometry args={[adjustedRadius, adjustedRadius, safeDisplayHeight, 32]} />
             <meshBasicMaterial
-              color="#ff6b00"
+              color="#00aaff"
               transparent
-              opacity={isSelected ? 0.3 : 0.2}
+              opacity={isSelected ? 0.4 : 0.3}
+              wireframe={true}
               side={THREE.DoubleSide}
               depthWrite={false}
             />
           </mesh>
-          {/* Wireframe más visible para mejor definición de bordes */}
-          <mesh>
-            <boxGeometry args={dimensions} />
+        </group>
+      );
+    } else if (object.colliderType === 'box') {
+      // Para el collider de caja, mostrar solo el RigidBody físico AZUL
+      return (
+        <group key={`box-${dimensionsKey}`} position={[0, 0, 0]}>
+          {/* RigidBody físico AZUL (solo visualización en editor) */}
+          <mesh position={[0, 0, 0]}>
+            <boxGeometry args={safeDimensions} />
             <meshBasicMaterial
-              color="#ff6b00"
+              color="#00aaff"
+              transparent
+              opacity={isSelected ? 0.4 : 0.3}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+          <mesh position={[0, 0, 0]}>
+            <boxGeometry args={safeDimensions} />
+            <meshBasicMaterial
+              color="#00aaff"
               transparent
               opacity={isSelected ? 1.0 : 0.8}
               wireframe={true}
@@ -2174,6 +2217,26 @@ const EditorColliderObject = memo(({
     }
     return null;
   };
+
+  // Log de posición del grupo en el editor
+  useEffect(() => {
+    if (groupRef.current) {
+      const groupPos = groupRef.current.position;
+      const groupRot = groupRef.current.rotation;
+      const groupWorldPos = new THREE.Vector3();
+      groupRef.current.getWorldPosition(groupWorldPos);
+      
+      console.log('🟠 [EDITOR - GRUPO DEL COLLIDER]:', {
+        'object.position': object.position,
+        'group.position (local)': [groupPos.x, groupPos.y, groupPos.z],
+        'group.position (world)': [groupWorldPos.x, groupWorldPos.y, groupWorldPos.z],
+        'group.rotation (rad)': [groupRot.x, groupRot.y, groupRot.z],
+        'object.rotation (deg)': object.rotation,
+        'object.scale': object.scale,
+        'colliderType': object.colliderType,
+      });
+    }
+  }, [object.position, object.rotation, object.scale, object.colliderType]);
 
   return (
     <>

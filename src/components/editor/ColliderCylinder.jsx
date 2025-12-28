@@ -61,9 +61,12 @@ export const ColliderCylinder = ({
   const safeDisplayHeight = Math.max(0.01, Math.min(2000, displayHeight));
   
   try {
+    // El cylinderGeometry en Three.js se centra automáticamente en el origen
+    // Por lo tanto, el mesh debe estar en [0, 0, 0] relativo al group
+    // El group se posiciona en la posición del objeto
     return (
       <group position={position} rotation={rotationInRadians}>
-        <mesh>
+        <mesh position={[0, 0, 0]}>
           <cylinderGeometry args={[safeRadius, safeRadius, safeDisplayHeight, 32]} />
           <meshBasicMaterial
             color={color}

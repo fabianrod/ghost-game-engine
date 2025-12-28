@@ -36,7 +36,27 @@ export const ColliderObject = ({
       return null;
     }
 
-    const { radius, halfHeight, rotation: colliderRotation } = colliderParams;
+    const { radius, halfHeight, height, rotation: colliderRotation } = colliderParams;
+
+    // CapsuleCollider en Rapier: args={[halfHeight, radius]}
+    // La altura total de la cápsula es: halfHeight * 2 + radius * 2
+    // Para un collider cilíndrico, interpretamos scale[1] como la altura total deseada
+    // y scale[0]/scale[2] como el radio
+    
+    // Si la altura deseada es menor que el diámetro (2*radius), ajustamos el radio
+    let adjustedRadius = radius;
+    let adjustedHalfHeight = halfHeight;
+    
+    // Si height < 2*radius, reducimos el radio para que quepa
+    if (height < radius * 2) {
+      adjustedRadius = Math.max(0.1, height / 2);
+      adjustedHalfHeight = 0; // Solo semiesferas, sin cilindro
+    } else {
+      // Ajustar halfHeight para que la altura total sea aproximadamente height
+      // height = halfHeight * 2 + adjustedRadius * 2
+      // halfHeight = (height - adjustedRadius * 2) / 2
+      adjustedHalfHeight = Math.max(0, (height - adjustedRadius * 2) / 2);
+    }
 
     // Combinar rotación del objeto con rotación del collider
     const combinedRotation = [
@@ -56,7 +76,7 @@ export const ColliderObject = ({
           rotation={combinedRotation}
         >
           <CapsuleCollider
-            args={[halfHeight, radius]}
+            args={[adjustedHalfHeight, adjustedRadius]}
             position={[0, 0, 0]}
           />
         </RigidBody>
@@ -69,7 +89,7 @@ export const ColliderObject = ({
           rotation={rotationInRadians}
         >
           <CapsuleCollider
-            args={[halfHeight, radius]}
+            args={[adjustedHalfHeight, adjustedRadius]}
             position={[0, 0, 0]}
           />
         </RigidBody>
@@ -79,10 +99,15 @@ export const ColliderObject = ({
 
   // Renderizar collider de caja
   if (colliderType === 'box') {
+    // Asegurar que position sea un array válido
+    const validPosition = Array.isArray(position) && position.length === 3 
+      ? [Number(position[0]), Number(position[1]), Number(position[2])]
+      : [0, 0, 0];
+
     return (
       <RigidBody
         type="fixed"
-        position={position}
+        position={validPosition}
         rotation={rotationInRadians}
       >
         <CuboidCollider
