@@ -431,7 +431,6 @@ const EditorSceneObject = memo(({
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
-  const scaleControlsGroupRef = useRef();
 
   // Estado de arrastre - usar ref para evitar re-renders
   const isDragging = useRef(false);
@@ -565,13 +564,6 @@ const EditorSceneObject = memo(({
   // Usar useFrame para sincronización suave y eficiente
   useFrame(() => {
     if (!groupRef.current) return;
-    
-    // Sincronizar posición del grupo de controles de escalamiento con el objeto
-    if (isSelected && transformMode === 'scale' && scaleControlsGroupRef.current) {
-      scaleControlsGroupRef.current.position.copy(groupRef.current.position);
-      scaleControlsGroupRef.current.rotation.copy(groupRef.current.rotation);
-      scaleControlsGroupRef.current.updateMatrixWorld();
-    }
 
     // Forzar posición Y durante arrastre horizontal para evitar que se hunda
     if (isTransforming.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && transformMode !== 'scale') {
@@ -731,9 +723,9 @@ const EditorSceneObject = memo(({
     
     let position = groupRef.current.position;
     const rotation = groupRef.current.rotation;
-    const scale = groupRef.current.scale;
+    let scale = groupRef.current.scale.clone(); // Clonar para no modificar directamente
 
-    // Aplicar snap solo en modo translate
+    // Aplicar snap según el modo
     if (snapEnabled && transformMode === 'translate') {
       const snappedX = applySnap(position.x);
       let snappedY = applySnap(position.y);
@@ -776,6 +768,20 @@ const EditorSceneObject = memo(({
       // Actualizar lastPositionRef DURANTE el arrastre para evitar falsos positivos
       // Esto evita que pequeños cambios en Y durante arrastre horizontal activen el snap
       lastPositionRef.current.set(position.x, position.y, position.z);
+    } else if (snapEnabled && transformMode === 'scale') {
+      // Aplicar snap para escalado con incrementos de 0.1 (más preciso y fluido)
+      scale.x = Math.round(scale.x / 0.1) * 0.1;
+      scale.y = Math.round(scale.y / 0.1) * 0.1;
+      scale.z = Math.round(scale.z / 0.1) * 0.1;
+      
+      // Asegurar límites mínimos y máximos razonables
+      scale.x = Math.max(0.1, Math.min(100, scale.x));
+      scale.y = Math.max(0.1, Math.min(100, scale.y));
+      scale.z = Math.max(0.1, Math.min(100, scale.z));
+      
+      // Aplicar la escala ajustada
+      groupRef.current.scale.set(scale.x, scale.y, scale.z);
+      groupRef.current.updateMatrixWorld();
     }
 
     // Preparar datos para actualización
@@ -803,7 +809,14 @@ const EditorSceneObject = memo(({
     
     // Aplicar transformación visual inmediatamente
     applyTransformSnap();
-  }, [applyTransformSnap]);
+    
+    // Mostrar feedback visual durante escalado (opcional - se puede mejorar con overlay)
+    if (transformMode === 'scale' && groupRef.current) {
+      const scale = groupRef.current.scale;
+      // Log opcional para debugging - en producción se puede mostrar en UI
+      // console.log(`Escala: X=${scale.x.toFixed(2)}, Y=${scale.y.toFixed(2)}, Z=${scale.z.toFixed(2)}`);
+    }
+  }, [applyTransformSnap, transformMode]);
 
   const handleDragStart = useCallback(() => {
     isDragging.current = true;
@@ -873,6 +886,21 @@ const EditorSceneObject = memo(({
         
         groupRef.current.position.set(snappedX, snappedY, snappedZ);
         position = { x: snappedX, y: snappedY, z: snappedZ };
+        groupRef.current.updateMatrixWorld();
+      } else if (snapEnabled && transformMode === 'scale') {
+        // Aplicar snap final para escalado
+        let snappedScale = scale.clone();
+        snappedScale.x = Math.round(snappedScale.x / 0.1) * 0.1;
+        snappedScale.y = Math.round(snappedScale.y / 0.1) * 0.1;
+        snappedScale.z = Math.round(snappedScale.z / 0.1) * 0.1;
+        
+        // Asegurar límites
+        snappedScale.x = Math.max(0.1, Math.min(100, snappedScale.x));
+        snappedScale.y = Math.max(0.1, Math.min(100, snappedScale.y));
+        snappedScale.z = Math.max(0.1, Math.min(100, snappedScale.z));
+        
+        groupRef.current.scale.set(snappedScale.x, snappedScale.y, snappedScale.z);
+        scale = snappedScale;
         groupRef.current.updateMatrixWorld();
       }
 
@@ -1009,296 +1037,6 @@ const EditorSceneObject = memo(({
     }
   }, [isSelected]);
 
-  // Refs para el control de escalamiento personalizado
-  const raycasterRef = useRef(new THREE.Raycaster());
-  const mouseRef = useRef(new THREE.Vector2());
-  const activeAxisRef = useRef(null);
-  const initialScaleRef = useRef(new THREE.Vector3());
-  const initialMousePosRef = useRef(new THREE.Vector2());
-
-  // Crear controles de escalamiento simplificados (solo ejes principales)
-  useEffect(() => {
-    if (!isSelected || transformMode !== 'scale' || !groupRef.current || !scaleControlsGroupRef.current) {
-      // Limpiar controles si no están seleccionados o no están en modo scale
-      if (scaleControlsGroupRef.current) {
-        try {
-          scaleControlsGroupRef.current.clear();
-        } catch (e) {
-          // Ignorar errores al limpiar
-        }
-      }
-      return;
-    }
-
-    try {
-      const group = scaleControlsGroupRef.current;
-      if (!group) return;
-      
-      group.clear();
-
-    // Tamaños optimizados para mejor visibilidad y usabilidad
-    const axisLength = 2.5; // Longitud de los ejes
-    const handleSize = 0.3; // Tamaño de los handles cuadrados
-    const centerHandleSize = 0.35; // Tamaño del handle central (un poco más grande)
-
-    // Colores para cada eje
-    const colors = {
-      x: 0xff0000, // Rojo
-      y: 0x00ff00, // Verde
-      z: 0x0000ff, // Azul
-    };
-    const centerColor = 0xffffff; // Blanco para el control central
-
-    // Crear cubo central para escalado proporcional
-    const centerGeometry = new THREE.BoxGeometry(centerHandleSize, centerHandleSize, centerHandleSize);
-    const centerMaterial = new THREE.MeshBasicMaterial({ 
-      color: centerColor,
-      transparent: true,
-      opacity: 0.9,
-    });
-    const centerHandle = new THREE.Mesh(centerGeometry, centerMaterial);
-    centerHandle.userData.axis = 'uniform';
-    centerHandle.userData.isControl = true;
-    centerHandle.userData.isHandle = true;
-    centerHandle.userData.isCenter = true;
-    group.add(centerHandle);
-
-    // Crear controles para cada eje (solo ejes y handles cuadrados)
-    ['x', 'y', 'z'].forEach((axis) => {
-      const direction = new THREE.Vector3();
-      direction[axis] = 1;
-
-      // Línea del eje (simple y limpia)
-      const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(0, 0, 0),
-        direction.clone().multiplyScalar(axisLength),
-      ]);
-      const lineMaterial = new THREE.LineBasicMaterial({ 
-        color: colors[axis], 
-        linewidth: 2,
-        transparent: true,
-        opacity: 0.7
-      });
-      const line = new THREE.Line(lineGeometry, lineMaterial);
-      line.userData.axis = axis;
-      line.userData.isControl = true;
-      group.add(line);
-
-      // Handle interactivo cuadrado al final del eje
-      const handleGeometry = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
-      const handleMaterial = new THREE.MeshBasicMaterial({ 
-        color: colors[axis],
-        transparent: true,
-        opacity: 0.9,
-      });
-      const handle = new THREE.Mesh(handleGeometry, handleMaterial);
-      handle.position.copy(direction.clone().multiplyScalar(axisLength));
-      handle.userData.axis = axis;
-      handle.userData.isControl = true;
-      handle.userData.isHandle = true;
-      group.add(handle);
-    });
-
-      return () => {
-        if (group) {
-          try {
-            group.clear();
-          } catch (e) {
-            // Ignorar errores al limpiar
-          }
-        }
-      };
-    } catch (error) {
-      console.error('Error creando controles de escalamiento:', error);
-    }
-  }, [isSelected, transformMode, object.scale]);
-
-  // Manejar interacción con controles de escalamiento personalizados
-  // Usar useThree dentro de un componente interno para evitar problemas de contexto
-  const ScaleControlsInteraction = () => {
-    const { camera, gl } = useThree();
-    
-    useEffect(() => {
-      if (!isSelected || transformMode !== 'scale' || !scaleControlsGroupRef.current || !groupRef.current || !camera || !gl) {
-        return;
-      }
-
-      const handleMouseDown = (event) => {
-        if (!scaleControlsGroupRef.current || !groupRef.current) return;
-
-        const rect = gl.domElement.getBoundingClientRect();
-        mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycasterRef.current.setFromCamera(mouseRef.current, camera);
-        const intersects = raycasterRef.current.intersectObjects(
-          scaleControlsGroupRef.current.children,
-          true
-        );
-
-      if (intersects.length > 0) {
-        // Priorizar el cubo central si hay intersección con él
-        let selectedIntersect = intersects[0];
-        const centerIntersect = intersects.find(int => int.object.userData.isCenter);
-        if (centerIntersect) {
-          selectedIntersect = centerIntersect;
-        } else {
-          // Priorizar handles sobre líneas
-          const handleIntersect = intersects.find(int => int.object.userData.isHandle);
-          if (handleIntersect) {
-            selectedIntersect = handleIntersect;
-          }
-        }
-
-        if (selectedIntersect.object.userData.isControl) {
-          event.preventDefault();
-          event.stopPropagation();
-          activeAxisRef.current = selectedIntersect.object.userData.axis;
-          initialScaleRef.current.copy(groupRef.current.scale);
-          initialMousePosRef.current.set(event.clientX, event.clientY);
-          isTransforming.current = true;
-          isDragging.current = true;
-
-          if (orbitControlsRef.current) {
-            orbitControlsRef.current.enabled = false;
-          }
-
-          // Marcar este objeto como el que se está transformando
-          if (transformingObjectIdRef) {
-            transformingObjectIdRef.current = object.id;
-          }
-
-          handleDragStart();
-        }
-      }
-    };
-
-    const handleMouseMove = (event) => {
-      if (!activeAxisRef.current || !groupRef.current || !isTransforming.current) return;
-
-      // Calcular el movimiento del mouse en la pantalla
-      const currentMousePos = new THREE.Vector2(event.clientX, event.clientY);
-      const deltaY = initialMousePosRef.current.y - currentMousePos.y; // Invertido: arriba aumenta, abajo disminuye
-      
-      // Factor de escalamiento basado en el movimiento vertical del mouse
-      // Más intuitivo: mover hacia arriba aumenta, mover hacia abajo disminuye
-      const sensitivity = 0.01;
-      const scaleDelta = deltaY * sensitivity;
-      const scaleFactor = 1 + scaleDelta;
-      
-      const newScale = initialScaleRef.current.clone();
-      
-      // Escalado proporcional (uniforme) o por eje individual
-      if (activeAxisRef.current === 'uniform') {
-        // Escalar todos los ejes proporcionalmente
-        newScale.multiplyScalar(scaleFactor);
-        
-        // Aplicar snap si está habilitado
-        if (snapEnabled) {
-          newScale.x = Math.round(newScale.x / 0.1) * 0.1;
-          newScale.y = Math.round(newScale.y / 0.1) * 0.1;
-          newScale.z = Math.round(newScale.z / 0.1) * 0.1;
-        }
-        
-        // Limitar escala mínima y máxima (aplicar a todos los ejes)
-        const minScale = Math.min(newScale.x, newScale.y, newScale.z);
-        const maxScale = Math.max(newScale.x, newScale.y, newScale.z);
-        
-        if (minScale < 0.1) {
-          const factor = 0.1 / minScale;
-          newScale.multiplyScalar(factor);
-        } else if (maxScale > 10) {
-          const factor = 10 / maxScale;
-          newScale.multiplyScalar(factor);
-        }
-      } else {
-        // Escalar solo el eje seleccionado
-        newScale[activeAxisRef.current] *= scaleFactor;
-
-        // Aplicar snap si está habilitado
-        if (snapEnabled) {
-          newScale[activeAxisRef.current] = Math.round(newScale[activeAxisRef.current] / 0.1) * 0.1;
-        }
-
-        // Limitar escala mínima y máxima
-        newScale[activeAxisRef.current] = Math.max(0.1, Math.min(10, newScale[activeAxisRef.current]));
-      }
-
-      groupRef.current.scale.set(newScale.x, newScale.y, newScale.z);
-      groupRef.current.updateMatrixWorld();
-
-      // Actualizar el estado visualmente (sin actualizar el estado todavía)
-      // El estado se actualizará en handleDragEnd
-    };
-
-    const handleMouseUp = (event) => {
-      if (activeAxisRef.current) {
-        // Prevenir el evento click que se disparará después del mouseup
-        // Esto evita que el RaycastHandler deseleccione el objeto
-        if (event) {
-          event.preventDefault();
-          event.stopPropagation();
-        }
-        
-        activeAxisRef.current = null;
-        
-        // Registrar el tiempo de finalización ANTES de llamar handleDragEnd
-        if (lastTransformEndTimeRef) {
-          lastTransformEndTimeRef.current = Date.now();
-          console.log('[ScaleControls] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
-        }
-        
-        handleDragEnd();
-        
-        // Mantener los flags activos por más tiempo para evitar deselección
-        // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
-        // para que RaycastHandler sepa que este objeto se acaba de transformar
-        setTimeout(() => {
-          isTransforming.current = false;
-          isDragging.current = false;
-          // NO limpiar transformingObjectIdRef inmediatamente
-          // Mantenerlo activo por más tiempo (3 segundos total) para que RaycastHandler
-          // pueda detectar que este objeto se acaba de transformar y no lo deseleccione
-          setTimeout(() => {
-            // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
-            if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
-              transformingObjectIdRef.current = null;
-            }
-          }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
-        }, 500);
-
-        if (orbitControlsRef.current) {
-          orbitControlsRef.current.enabled = true;
-        }
-      }
-    };
-
-    // Prevenir el evento click después de un arrastre
-    const handleClick = (event) => {
-      // Si acabamos de terminar un arrastre, prevenir el click
-      if (activeAxisRef.current !== null || isTransforming.current || isDragging.current) {
-        event.preventDefault();
-        event.stopPropagation();
-        return;
-      }
-    };
-
-      const canvas = gl.domElement;
-      canvas.addEventListener('mousedown', handleMouseDown);
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('click', handleClick, true); // Usar capture phase para interceptar antes
-
-      return () => {
-        canvas.removeEventListener('mousedown', handleMouseDown);
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-        canvas.removeEventListener('click', handleClick, true);
-      };
-    }, [isSelected, transformMode, camera, gl, snapEnabled, applyTransformSnap, handleDragStart, handleDragEnd, orbitControlsRef, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
-    
-    return null;
-  };
 
   return (
     <>
@@ -1363,19 +1101,8 @@ const EditorSceneObject = memo(({
 
       </group>
 
-      {/* Componente para manejar interacción con controles de escalamiento */}
-      {isSelected && transformMode === 'scale' && <ScaleControlsInteraction />}
-      
-      {/* Controles de transformación - usar control personalizado simplificado para scale */}
-      {isSelected && groupReadyRef.current && groupRef.current && transformMode === 'scale' && (
-        <group 
-          ref={scaleControlsGroupRef}
-          visible={true}
-        />
-      )}
-      
-      {/* TransformControls - solo para translate y rotate (no para scale) */}
-      {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && (
+      {/* TransformControls - ahora incluye translate, rotate Y scale */}
+      {isSelected && groupReadyRef.current && groupRef.current && (
         <>
           <TransformControls
             ref={transformRef}
@@ -1384,13 +1111,14 @@ const EditorSceneObject = memo(({
             onObjectChange={handleObjectChange}
             translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
             rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null} // Snap de 45 grados para rotación
+            scaleSnap={snapEnabled && transformMode === 'scale' ? 0.1 : null} // Snap de 0.1 unidades para escalado
             onMouseDown={handleDragStart}
             onMouseUp={handleDragEnd}
             showX={true}
             showY={true}
             showZ={true}
-            space="world" // Usar espacio mundial para mejor control
-            size={1.2} // Tamaño ligeramente mayor para mejor visibilidad
+            space={transformMode === 'scale' ? 'local' : 'world'} // Usar espacio local para scale (más intuitivo), world para translate/rotate
+            size={transformMode === 'scale' ? 1.8 : 1.2} // Tamaño mayor para scale (1.8) para mejor visibilidad y control más preciso
           />
           {/* Interceptar clicks en el TransformControls para prevenir deselección */}
           <TransformControlsClickInterceptor
@@ -1467,47 +1195,11 @@ const EditorColliderObject = memo(({
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
-  const scaleControlsGroupRef = useRef();
 
   // Estado de arrastre
   const isDragging = useRef(false);
   const isTransforming = useRef(false);
 
-  // Estado local para las dimensiones del collider (se actualiza durante el arrastre)
-  // Validar que object.scale sea un array válido antes de usarlo
-  const getValidScale = () => {
-    if (!object.scale || !Array.isArray(object.scale) || object.scale.length < 3) {
-      return [1, 1, 1];
-    }
-    // Validar que todos los valores sean números válidos
-    const valid = object.scale.map(d => {
-      if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-        return 1;
-      }
-      return d;
-    });
-    return valid;
-  };
-  const [currentDimensions, setCurrentDimensions] = useState(getValidScale());
-
-  // Refs para el control de escalamiento personalizado
-  const raycasterRef = useRef(new THREE.Raycaster());
-  const mouseRef = useRef(new THREE.Vector2());
-  const activeAxisRef = useRef(null);
-  // Validar object.scale antes de inicializar el ref
-  const getInitialScale = () => {
-    if (!object.scale || !Array.isArray(object.scale) || object.scale.length < 3) {
-      return [1, 1, 1];
-    }
-    return object.scale.map(d => {
-      if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-        return 1;
-      }
-      return d;
-    });
-  };
-  const initialDimensionsRef = useRef(new THREE.Vector3(...getInitialScale()));
-  const initialMousePosRef = useRef(new THREE.Vector2());
 
   // Cache para valores anteriores
   const lastPositionRef = useRef(new THREE.Vector3(...object.position));
@@ -1538,15 +1230,15 @@ const EditorColliderObject = memo(({
     return Math.round(value / snapSize) * snapSize;
   }, [snapEnabled, snapSize]);
 
-  // Función para aplicar transformación con snap
+    // Función para aplicar transformación con snap
   const applyTransformSnap = useCallback(() => {
     if (!groupRef.current) return;
     
     let position = groupRef.current.position;
     const rotation = groupRef.current.rotation;
-    const scale = groupRef.current.scale;
+    let scale = groupRef.current.scale.clone(); // Clonar para no modificar directamente
 
-    // Aplicar snap solo en modo translate
+    // Aplicar snap según el modo
     if (snapEnabled && transformMode === 'translate') {
       const snappedX = applySnap(position.x);
       const snappedY = applySnap(position.y);
@@ -1557,6 +1249,20 @@ const EditorColliderObject = memo(({
       groupRef.current.updateMatrixWorld();
       
       lastPositionRef.current.set(position.x, position.y, position.z);
+    } else if (snapEnabled && transformMode === 'scale') {
+      // Aplicar snap para escalado con incrementos de 0.1 (más preciso y fluido)
+      scale.x = Math.round(scale.x / 0.1) * 0.1;
+      scale.y = Math.round(scale.y / 0.1) * 0.1;
+      scale.z = Math.round(scale.z / 0.1) * 0.1;
+      
+      // Asegurar límites mínimos y máximos razonables (más altos para colliders)
+      scale.x = Math.max(0.1, Math.min(1000, scale.x));
+      scale.y = Math.max(0.1, Math.min(1000, scale.y));
+      scale.z = Math.max(0.1, Math.min(1000, scale.z));
+      
+      // Aplicar la escala ajustada
+      groupRef.current.scale.set(scale.x, scale.y, scale.z);
+      groupRef.current.updateMatrixWorld();
     }
 
     // Preparar datos para actualización
@@ -1584,13 +1290,6 @@ const EditorColliderObject = memo(({
   // Sincronizar cuando cambia el objeto externamente
   useFrame(() => {
     if (!groupRef.current) return;
-    
-    // Sincronizar posición del grupo de controles de escalamiento con el collider
-    if (isSelected && transformMode === 'scale' && scaleControlsGroupRef.current) {
-      scaleControlsGroupRef.current.position.copy(groupRef.current.position);
-      scaleControlsGroupRef.current.rotation.copy(groupRef.current.rotation);
-      scaleControlsGroupRef.current.updateMatrixWorld();
-    }
     
     // NO sincronizar durante arrastre para evitar parpadeo
     if (isDragging.current || isTransforming.current) {
@@ -1674,6 +1373,21 @@ const EditorColliderObject = memo(({
         groupRef.current.position.set(snappedX, snappedY, snappedZ);
         position = { x: snappedX, y: snappedY, z: snappedZ };
         groupRef.current.updateMatrixWorld();
+      } else if (snapEnabled && transformMode === 'scale') {
+        // Aplicar snap final para escalado
+        let snappedScale = scale.clone();
+        snappedScale.x = Math.round(snappedScale.x / 0.1) * 0.1;
+        snappedScale.y = Math.round(snappedScale.y / 0.1) * 0.1;
+        snappedScale.z = Math.round(snappedScale.z / 0.1) * 0.1;
+        
+        // Asegurar límites (más altos para colliders)
+        snappedScale.x = Math.max(0.1, Math.min(1000, snappedScale.x));
+        snappedScale.y = Math.max(0.1, Math.min(1000, snappedScale.y));
+        snappedScale.z = Math.max(0.1, Math.min(1000, snappedScale.z));
+        
+        groupRef.current.scale.set(snappedScale.x, snappedScale.y, snappedScale.z);
+        scale = snappedScale;
+        groupRef.current.updateMatrixWorld();
       }
 
       const rotationDegrees = [
@@ -1683,19 +1397,18 @@ const EditorColliderObject = memo(({
       ];
 
       // Para colliders, las dimensiones se manejan directamente (no a través de la escala del grupo)
-      // Si estamos escalando, SIEMPRE usar el ref que tiene las dimensiones más recientes
-      // El ref se actualiza en tiempo real durante el arrastre, así que siempre está actualizado
+      // TransformControls actualiza el grupo.scale, pero para colliders usamos las dimensiones directamente
       let finalScale = object.scale || [1, 1, 1];
       if (transformMode === 'scale') {
-        // Usar el ref que tiene las dimensiones más recientes (siempre actualizado durante el arrastre)
-        finalScale = [
-          initialDimensionsRef.current.x,
-          initialDimensionsRef.current.y,
-          initialDimensionsRef.current.z
-        ];
+        // Para colliders, usar la escala del grupo directamente (TransformControls la actualiza)
+        // Pero validar y aplicar snap si es necesario
+        finalScale = [scale.x, scale.y, scale.z];
         
-        // Asegurar que currentDimensions también esté actualizado para consistencia visual
-        setCurrentDimensions(finalScale);
+        // Aplicar snap si está habilitado
+        if (snapEnabled) {
+          finalScale = finalScale.map(s => Math.round(s / 0.1) * 0.1);
+          finalScale = finalScale.map(s => Math.max(0.1, Math.min(1000, s))); // Límites para colliders
+        }
       }
 
       lastPositionRef.current.set(position.x, position.y, position.z);
@@ -1781,357 +1494,11 @@ const EditorColliderObject = memo(({
     }
   }, [isSelected]);
 
-  // Sincronizar currentDimensions con object.scale cuando no está transformando
-  useEffect(() => {
-    if (!isTransforming.current && !isDragging.current) {
-      // Validar que object.scale sea válido
-      let newScale = [1, 1, 1];
-      if (object.scale && Array.isArray(object.scale) && object.scale.length >= 3) {
-        newScale = object.scale.map(d => {
-          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-            return 1;
-          }
-          return d;
-        });
-      }
-      setCurrentDimensions(newScale);
-      initialDimensionsRef.current.set(...newScale);
-    }
-  }, [object.scale]);
-  
-  // Forzar actualización del collider visual cuando currentDimensions cambia durante el escalado
-  useEffect(() => {
-    // Esto fuerza un re-render cuando currentDimensions cambia
-    // El key en renderColliderVisual también ayuda a forzar la actualización
-  }, [currentDimensions]);
-
-  // Crear controles de escalamiento para colliders
-  useEffect(() => {
-    if (!isSelected || transformMode !== 'scale' || !groupRef.current || !scaleControlsGroupRef.current) {
-      if (scaleControlsGroupRef.current) {
-        try {
-          scaleControlsGroupRef.current.clear();
-        } catch (e) {
-          // Ignorar errores al limpiar
-        }
-      }
-      return;
-    }
-
-    try {
-      const group = scaleControlsGroupRef.current;
-      if (!group) return;
-      
-      group.clear();
-
-      // Tamaños optimizados
-      const axisLength = 2.5;
-      const handleSize = 0.3;
-      const centerHandleSize = 0.35;
-
-      // Colores para cada eje
-      const colors = {
-        x: 0xff0000,
-        y: 0x00ff00,
-        z: 0x0000ff,
-      };
-      const centerColor = 0xffffff;
-
-      // Cubo central para escalado proporcional
-      const centerGeometry = new THREE.BoxGeometry(centerHandleSize, centerHandleSize, centerHandleSize);
-      const centerMaterial = new THREE.MeshBasicMaterial({ 
-        color: centerColor,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const centerHandle = new THREE.Mesh(centerGeometry, centerMaterial);
-      centerHandle.userData.axis = 'uniform';
-      centerHandle.userData.isControl = true;
-      centerHandle.userData.isHandle = true;
-      centerHandle.userData.isCenter = true;
-      group.add(centerHandle);
-
-      // Controles para cada eje
-      ['x', 'y', 'z'].forEach((axis) => {
-        const direction = new THREE.Vector3();
-        direction[axis] = 1;
-
-        // Línea del eje
-        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(0, 0, 0),
-          direction.clone().multiplyScalar(axisLength),
-        ]);
-        const lineMaterial = new THREE.LineBasicMaterial({ 
-          color: colors[axis], 
-          linewidth: 2,
-          transparent: true,
-          opacity: 0.7
-        });
-        const line = new THREE.Line(lineGeometry, lineMaterial);
-        line.userData.axis = axis;
-        line.userData.isControl = true;
-        group.add(line);
-
-        // Handle interactivo
-        const handleGeometry = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
-        const handleMaterial = new THREE.MeshBasicMaterial({ 
-          color: colors[axis],
-          transparent: true,
-          opacity: 0.9,
-        });
-        const handle = new THREE.Mesh(handleGeometry, handleMaterial);
-        handle.position.copy(direction.clone().multiplyScalar(axisLength));
-        handle.userData.axis = axis;
-        handle.userData.isControl = true;
-        handle.userData.isHandle = true;
-        group.add(handle);
-      });
-
-      return () => {
-        if (group) {
-          try {
-            group.clear();
-          } catch (e) {
-            // Ignorar errores al limpiar
-          }
-        }
-      };
-    } catch (error) {
-      console.error('Error creando controles de escalamiento para collider:', error);
-    }
-  }, [isSelected, transformMode, object.scale]);
-
-  // Componente para manejar interacción con controles de escalamiento de colliders
-  const ColliderScaleControlsInteraction = () => {
-    const { camera, gl } = useThree();
-    
-    useEffect(() => {
-      if (!isSelected || transformMode !== 'scale' || !scaleControlsGroupRef.current || !groupRef.current || !camera || !gl) {
-        return;
-      }
-
-      const handleMouseDown = (event) => {
-        if (!scaleControlsGroupRef.current || !groupRef.current) return;
-
-        const rect = gl.domElement.getBoundingClientRect();
-        mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        raycasterRef.current.setFromCamera(mouseRef.current, camera);
-        const intersects = raycasterRef.current.intersectObjects(
-          scaleControlsGroupRef.current.children,
-          true
-        );
-
-        if (intersects.length > 0) {
-          let selectedIntersect = intersects[0];
-          const centerIntersect = intersects.find(int => int.object.userData.isCenter);
-          if (centerIntersect) {
-            selectedIntersect = centerIntersect;
-          } else {
-            const handleIntersect = intersects.find(int => int.object.userData.isHandle);
-            if (handleIntersect) {
-              selectedIntersect = handleIntersect;
-            }
-          }
-
-          if (selectedIntersect.object.userData.isControl) {
-            event.preventDefault();
-            event.stopPropagation();
-            activeAxisRef.current = selectedIntersect.object.userData.axis;
-            
-            // Validar currentDimensions antes de usarlo
-            const validCurrentDims = currentDimensions.map((d, i) => {
-              if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-                console.warn(`[ColliderScaleControls] Dimensión ${i} inválida al iniciar escalado:`, d, 'usando valor del objeto');
-                return (object.scale && Array.isArray(object.scale) && object.scale[i] !== null && typeof object.scale[i] === 'number') 
-                  ? object.scale[i] 
-                  : 1;
-              }
-              return d;
-            });
-            
-            initialDimensionsRef.current.set(...validCurrentDims);
-            initialMousePosRef.current.set(event.clientX, event.clientY);
-            isTransforming.current = true;
-            isDragging.current = true;
-
-            if (orbitControlsRef.current) {
-              orbitControlsRef.current.enabled = false;
-            }
-
-            if (transformingObjectIdRef) {
-              transformingObjectIdRef.current = object.id;
-            }
-
-            handleDragStart();
-          }
-        }
-      };
-
-      const handleMouseMove = (event) => {
-        if (!activeAxisRef.current || !isTransforming.current) return;
-
-        // Validar que initialDimensionsRef tenga valores válidos
-        const initialDims = initialDimensionsRef.current.toArray();
-        const validInitialDims = initialDims.map((d, i) => {
-          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-            console.warn(`[ColliderScaleControls] Dimensión inicial ${i} inválida:`, d, 'usando valor del objeto');
-            return (object.scale && Array.isArray(object.scale) && object.scale[i] !== null && typeof object.scale[i] === 'number') 
-              ? object.scale[i] 
-              : 1;
-          }
-          return d;
-        });
-        
-        // Actualizar el ref con valores válidos si había problemas
-        if (validInitialDims.some((d, i) => d !== initialDims[i])) {
-          initialDimensionsRef.current.set(...validInitialDims);
-        }
-
-        const currentMousePos = new THREE.Vector2(event.clientX, event.clientY);
-        const deltaY = initialMousePosRef.current.y - currentMousePos.y;
-        
-        // Sensibilidad mejorada: más responsiva y precisa
-        // Sensibilidad adaptativa: más sensible para valores grandes
-        const baseSensitivity = 0.015;
-        const currentSize = Math.max(...validInitialDims);
-        // Aumentar sensibilidad para valores grandes (más fácil de escalar colliders grandes)
-        const adaptiveSensitivity = (currentSize > 10 && isFinite(currentSize)) ? baseSensitivity * 2 : baseSensitivity;
-        const scaleDelta = deltaY * adaptiveSensitivity;
-        const scaleFactor = 1 + scaleDelta;
-        
-        // Validar que scaleFactor sea válido
-        if (!isFinite(scaleFactor) || isNaN(scaleFactor) || scaleFactor <= 0) {
-          console.warn('[ColliderScaleControls] scaleFactor inválido:', scaleFactor, 'usando 1.0');
-          return; // No actualizar si el factor es inválido
-        }
-        
-        const newDimensions = initialDimensionsRef.current.clone();
-        
-        if (activeAxisRef.current === 'uniform') {
-          // Escalar todos los ejes proporcionalmente
-          newDimensions.multiplyScalar(scaleFactor);
-          
-          if (snapEnabled) {
-            newDimensions.x = Math.round(newDimensions.x / 0.1) * 0.1;
-            newDimensions.y = Math.round(newDimensions.y / 0.1) * 0.1;
-            newDimensions.z = Math.round(newDimensions.z / 0.1) * 0.1;
-          }
-          
-          const minScale = Math.min(newDimensions.x, newDimensions.y, newDimensions.z);
-          const maxScale = Math.max(newDimensions.x, newDimensions.y, newDimensions.z);
-          
-          if (minScale < 0.1) {
-            const factor = 0.1 / minScale;
-            newDimensions.multiplyScalar(factor);
-          } else if (maxScale > 1000) { // Límite máximo muy alto para colliders grandes (muros, límites de nivel)
-            const factor = 1000 / maxScale;
-            newDimensions.multiplyScalar(factor);
-          }
-        } else {
-          // Escalar solo el eje seleccionado
-          newDimensions[activeAxisRef.current] *= scaleFactor;
-
-          if (snapEnabled) {
-            newDimensions[activeAxisRef.current] = Math.round(newDimensions[activeAxisRef.current] / 0.1) * 0.1;
-          }
-
-          newDimensions[activeAxisRef.current] = Math.max(0.1, Math.min(1000, newDimensions[activeAxisRef.current])); // Límite máximo muy alto para colliders grandes
-        }
-
-        // Validar que las nuevas dimensiones sean válidas antes de actualizar
-        const newDims = [newDimensions.x, newDimensions.y, newDimensions.z];
-        const validNewDims = newDims.map((d, i) => {
-          if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-            console.warn(`[ColliderScaleControls] Dimensión ${i} inválida durante escalado:`, d, 'manteniendo valor anterior');
-            return initialDimensionsRef.current.toArray()[i];
-          }
-          return d;
-        });
-        
-        setCurrentDimensions(validNewDims);
-        
-        // También actualizar el ref para mantener consistencia
-        initialDimensionsRef.current.set(...validNewDims);
-      };
-
-      const handleMouseUp = (event) => {
-        if (activeAxisRef.current) {
-          if (event) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-          
-          // Capturar las dimensiones finales ANTES de limpiar activeAxisRef
-          // El ref ya tiene las dimensiones más recientes actualizadas en handleMouseMove
-          const finalDimensions = [
-            initialDimensionsRef.current.x,
-            initialDimensionsRef.current.y,
-            initialDimensionsRef.current.z
-          ];
-          
-          activeAxisRef.current = null;
-          
-          if (lastTransformEndTimeRef) {
-            lastTransformEndTimeRef.current = Date.now();
-          }
-          
-          // Actualizar currentDimensions con las dimensiones finales
-          setCurrentDimensions(finalDimensions);
-          
-          // Llamar handleDragEnd - usará el ref que ya tiene las dimensiones correctas
-          handleDragEnd();
-          
-          setTimeout(() => {
-            isTransforming.current = false;
-            isDragging.current = false;
-            if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
-              setTimeout(() => {
-                if (transformingObjectIdRef.current === object.id) {
-                  transformingObjectIdRef.current = null;
-                }
-              }, 2500);
-            }
-          }, 500);
-
-          if (orbitControlsRef.current) {
-            orbitControlsRef.current.enabled = true;
-          }
-        }
-      };
-
-      const handleClick = (event) => {
-        if (activeAxisRef.current !== null || isTransforming.current || isDragging.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-      };
-
-      const canvas = gl.domElement;
-      canvas.addEventListener('mousedown', handleMouseDown);
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('click', handleClick, true);
-
-      return () => {
-        canvas.removeEventListener('mousedown', handleMouseDown);
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-        canvas.removeEventListener('click', handleClick, true);
-      };
-    }, [isSelected, transformMode, camera, gl, snapEnabled, currentDimensions, handleDragStart, handleDragEnd, orbitControlsRef, object.id, transformingObjectIdRef, lastTransformEndTimeRef]);
-    
-    return null;
-  };
 
   // Renderizar collider visual según el tipo
-  // Usar currentDimensions cuando está en modo scale para actualización en tiempo real
   const renderColliderVisual = () => {
-    // Determinar qué dimensiones usar: currentDimensions si estamos en modo scale, sino object.scale
-    // Cuando estamos escalando, currentDimensions se actualiza en tiempo real
-    let dimensions = (transformMode === 'scale') ? currentDimensions : (object.scale || [1, 1, 1]);
+    // Usar las dimensiones del objeto directamente (TransformControls las actualiza en tiempo real)
+    let dimensions = object.scale || [1, 1, 1];
     
     // Validar que dimensions sea un array válido y no null
     if (!Array.isArray(dimensions) || dimensions.length < 3) {
@@ -2285,19 +1652,8 @@ const EditorColliderObject = memo(({
         )}
       </group>
 
-      {/* Componente para manejar interacción con controles de escalamiento */}
-      {isSelected && transformMode === 'scale' && <ColliderScaleControlsInteraction />}
-      
-      {/* Controles de escalamiento visuales */}
-      {isSelected && groupReadyRef.current && groupRef.current && transformMode === 'scale' && (
-        <group 
-          ref={scaleControlsGroupRef}
-          visible={true}
-        />
-      )}
-
-      {/* TransformControls - solo para translate y rotate (no para scale) */}
-      {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && (
+      {/* TransformControls - ahora incluye translate, rotate Y scale */}
+      {isSelected && groupReadyRef.current && groupRef.current && (
         <>
           <TransformControls
             ref={transformRef}
@@ -2306,13 +1662,14 @@ const EditorColliderObject = memo(({
             onObjectChange={handleObjectChange}
             translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
             rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null}
+            scaleSnap={snapEnabled && transformMode === 'scale' ? 0.1 : null} // Snap de 0.1 unidades para escalado
             onMouseDown={handleDragStart}
             onMouseUp={handleDragEnd}
             showX={true}
             showY={true}
             showZ={true}
-            space="world"
-            size={1.2}
+            space={transformMode === 'scale' ? 'local' : 'world'} // Usar espacio local para scale (más intuitivo), world para translate/rotate
+            size={transformMode === 'scale' ? 1.8 : 1.2} // Tamaño mayor para scale (1.8) para mejor visibilidad y control más preciso
           />
         </>
       )}
