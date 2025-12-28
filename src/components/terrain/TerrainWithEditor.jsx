@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { TerrainGenerator } from './TerrainGenerator';
 import { TerrainPainter } from './TerrainPainter';
+import { TerrainBrushIndicator } from './TerrainBrushIndicator';
 import { TERRAIN_CONFIG } from '../../constants/gameConstants';
 import { generateProceduralTerrain } from '../../utils/noise/TerrainGenerator';
 
@@ -64,14 +65,20 @@ export const TerrainWithEditor = ({
         onHeightmapChange={handleHeightmapChange}
       />
       {showEditor && (
-        <TerrainPainter
-          heightmap={currentHeightmap}
-          segments={TERRAIN_CONFIG.SEGMENTS}
-          terrainSize={TERRAIN_CONFIG.SIZE}
-          onHeightmapChange={handleHeightmapChange}
-          paintSettings={paintSettings}
-          enabled={showEditor && paintSettings !== null}
-        />
+        <>
+          <TerrainPainter
+            heightmap={currentHeightmap}
+            segments={TERRAIN_CONFIG.SEGMENTS}
+            terrainSize={TERRAIN_CONFIG.SIZE}
+            onHeightmapChange={handleHeightmapChange}
+            paintSettings={paintSettings}
+            enabled={showEditor && paintSettings !== null}
+          />
+          <TerrainBrushIndicator
+            paintSettings={paintSettings}
+            enabled={showEditor && paintSettings !== null}
+          />
+        </>
       )}
     </>
   );
