@@ -1,4 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { LEVEL_DEFAULTS } from '../constants/gameConstants';
+import { saveLevelToStorage, loadLevelFromStorage, removeLevelFromStorage } from '../utils/storageUtils';
+import { prepareLevelDataForSave, validateObject } from '../utils/objectUtils';
 
 /**
  * Hook para gestionar niveles: guardar, cargar, listar, crear, eliminar
@@ -10,7 +13,7 @@ export const useLevelManager = () => {
   const [error, setError] = useState(null);
 
   // Listar niveles disponibles
-  const listLevels = async () => {
+  const listLevels = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -50,44 +53,21 @@ export const useLevelManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Cargar un nivel
-  const loadLevel = async (filename) => {
+  const loadLevel = useCallback(async (filename) => {
     try {
       setLoading(true);
       setError(null);
       
       // Primero intentar cargar desde localStorage (cambios sin guardar)
-      try {
-        const cachedData = localStorage.getItem(`level_${filename}`);
-        const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
-        
-        if (cachedData && cachedTimestamp) {
-          // Verificar que el cache no sea muy antiguo (más de 24 horas)
-          const timestamp = parseInt(cachedTimestamp, 10);
-          const age = Date.now() - timestamp;
-          const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-          
-          if (age < maxAge) {
-            try {
-              const data = JSON.parse(cachedData);
-              console.log(`✅ Cargando nivel desde localStorage (cambios sin guardar): ${filename}`);
-              setCurrentLevel({ filename, data });
-              return data;
-            } catch (parseErr) {
-              console.warn('Error parseando datos de localStorage:', parseErr);
-              // Continuar con carga desde archivo
-            }
-          } else {
-            // Cache muy antiguo, limpiarlo
-            localStorage.removeItem(`level_${filename}`);
-            localStorage.removeItem(`level_${filename}_timestamp`);
-          }
-        }
-      } catch (storageErr) {
-        console.warn('Error accediendo a localStorage:', storageErr);
-        // Continuar con carga desde archivo
+      const cachedData = loadLevelFromStorage(filename);
+      if (cachedData) {
+        console.log(`✅ Cargando nivel desde localStorage (cambios sin guardar): ${filename}`);
+        setCurrentLevel({ filename, data: cachedData });
+        setLoading(false);
+        return cachedData;
       }
       
       // Si no hay datos en localStorage, cargar desde el archivo JSON
@@ -106,10 +86,10 @@ export const useLevelManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Guardar un nivel
-  const saveLevel = async (filename, levelData) => {
+  const saveLevel = useCallback(async (filename, levelData) => {
     try {
       setLoading(true);
       setError(null);
@@ -119,17 +99,20 @@ export const useLevelManager = () => {
         throw new Error('Datos del nivel inválidos');
       }
 
+      // Validar cada objeto
+      for (let i = 0; i < levelData.objects.length; i++) {
+        const validation = validateObject(levelData.objects[i], i);
+        if (!validation.valid) {
+          throw new Error(validation.error);
+        }
+      }
+
       // Crear el JSON
       const jsonString = JSON.stringify(levelData, null, 2);
       
       // Guardar también en localStorage para sincronización inmediata con el modo juego
       // Esto permite que los cambios se reflejen sin necesidad de guardar archivos manualmente
-      try {
-        localStorage.setItem(`level_${filename}`, jsonString);
-        localStorage.setItem(`level_${filename}_timestamp`, Date.now().toString());
-      } catch (storageErr) {
-        console.warn('No se pudo guardar en localStorage:', storageErr);
-      }
+      saveLevelToStorage(filename, levelData);
       
       // En el navegador, no podemos escribir directamente al sistema de archivos
       // Usamos el File System Access API si está disponible, o descarga
@@ -188,21 +171,21 @@ export const useLevelManager = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [listLevels]);
 
   // Crear nuevo nivel
-  const createNewLevel = (name = 'Nuevo Nivel') => {
+  const createNewLevel = useCallback((name = 'Nuevo Nivel') => {
     const newLevel = {
       name,
-      description: 'Nivel creado en el editor',
+      description: LEVEL_DEFAULTS.DESCRIPTION,
       objects: [],
     };
     setCurrentLevel({ filename: null, data: newLevel });
     return newLevel;
-  };
+  }, []);
 
   // Validar datos del nivel
-  const validateLevel = (levelData) => {
+  const validateLevel = useCallback((levelData) => {
     if (!levelData) {
       return { valid: false, error: 'No hay datos del nivel' };
     }
@@ -212,22 +195,19 @@ export const useLevelManager = () => {
     }
 
     for (let i = 0; i < levelData.objects.length; i++) {
-      const obj = levelData.objects[i];
-      if (!obj.model) {
-        return { valid: false, error: `Objeto ${i} no tiene modelo` };
-      }
-      if (!obj.position || !Array.isArray(obj.position) || obj.position.length !== 3) {
-        return { valid: false, error: `Objeto ${i} tiene posición inválida` };
+      const validation = validateObject(levelData.objects[i], i);
+      if (!validation.valid) {
+        return validation;
       }
     }
 
     return { valid: true };
-  };
+  }, []);
 
   // Cargar lista de niveles al montar
   useEffect(() => {
     listLevels();
-  }, []);
+  }, [listLevels]);
 
   return {
     levels,

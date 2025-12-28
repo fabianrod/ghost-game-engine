@@ -1,6 +1,8 @@
 import { useGLTF } from '@react-three/drei';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
 import { useMemo, useEffect } from 'react';
+import { OBJECT_CONFIG } from '../../constants/gameConstants';
+import { degreesToRadians } from '../../utils/mathUtils';
 import * as THREE from 'three';
 
 /**
@@ -18,14 +20,14 @@ import * as THREE from 'three';
  */
 export const SceneObject = ({ 
   model,
-  position = [0, 0, 0], 
-  scale = [1, 1, 1],
-  rotation = [0, 0, 0],
+  position = OBJECT_CONFIG.DEFAULT_POSITION, 
+  scale = OBJECT_CONFIG.DEFAULT_SCALE,
+  rotation = OBJECT_CONFIG.DEFAULT_ROTATION,
   castShadow = true,
   receiveShadow = true,
   hasCollider = true,
   autoAdjustY = true,
-  colliderScale = [0.8, 0.8, 0.8]
+  colliderScale = OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE
 }) => {
   // Cargar el modelo GLB
   const { scene } = useGLTF(model);
@@ -63,7 +65,7 @@ export const SceneObject = ({
 
   // Convertir rotación de grados a radianes si es necesario
   const rotationInRadians = useMemo(() => {
-    return rotation.map(angle => (angle * Math.PI) / 180);
+    return degreesToRadians(rotation);
   }, [rotation]);
 
   // Asegurar que todos los meshes sean raycastables

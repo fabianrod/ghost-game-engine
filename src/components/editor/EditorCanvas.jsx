@@ -860,7 +860,7 @@ const EditorSceneObject = memo(({
     if (groupRef.current) {
       let position = groupRef.current.position;
       const rotation = groupRef.current.rotation;
-      const scale = groupRef.current.scale;
+      let scale = groupRef.current.scale;
 
       // Aplicar snap final si es necesario
       if (snapEnabled && transformMode === 'translate') {
@@ -900,8 +900,9 @@ const EditorSceneObject = memo(({
         snappedScale.z = Math.max(0.1, Math.min(100, snappedScale.z));
         
         groupRef.current.scale.set(snappedScale.x, snappedScale.y, snappedScale.z);
-        scale = snappedScale;
         groupRef.current.updateMatrixWorld();
+        // Actualizar scale para usar en la actualización del cache
+        scale = snappedScale;
       }
 
       const rotationDegrees = [
@@ -1362,7 +1363,7 @@ const EditorColliderObject = memo(({
     if (groupRef.current) {
       let position = groupRef.current.position;
       const rotation = groupRef.current.rotation;
-      const scale = groupRef.current.scale;
+      let scale = groupRef.current.scale;
 
       // Aplicar snap final si es necesario
       if (snapEnabled && transformMode === 'translate') {
@@ -1386,8 +1387,9 @@ const EditorColliderObject = memo(({
         snappedScale.z = Math.max(0.1, Math.min(1000, snappedScale.z));
         
         groupRef.current.scale.set(snappedScale.x, snappedScale.y, snappedScale.z);
-        scale = snappedScale;
         groupRef.current.updateMatrixWorld();
+        // Actualizar scale para usar en la actualización posterior
+        scale = snappedScale;
       }
 
       const rotationDegrees = [

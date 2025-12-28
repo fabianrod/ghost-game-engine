@@ -5,6 +5,14 @@ import { Terrain } from './Terrain';
 import { Player } from './Player';
 import { LevelLoader } from './LevelLoader';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import {
+  PHYSICS_CONFIG,
+  LIGHTING_CONFIG,
+  SKY_CONFIG,
+  CAMERA_CONFIG,
+  POSTPROCESSING_CONFIG,
+  PLAYER_CONFIG,
+} from '../../constants/gameConstants';
 
 /**
  * Mapa de controles de teclado
@@ -26,44 +34,44 @@ export const GameScene = () => {
     <KeyboardControls map={keyboardMap}>
       <Canvas
         shadows
-        camera={{ position: [0, 1.65, 0], fov: 75 }}
+        camera={{ position: CAMERA_CONFIG.GAME_POSITION, fov: CAMERA_CONFIG.GAME_FOV }}
         style={{ width: '100vw', height: '100vh' }}
       >
       {/* Iluminación - sincronizada con la posición del sol */}
-      <ambientLight intensity={0.6} />
+      <ambientLight intensity={LIGHTING_CONFIG.AMBIENT_INTENSITY} />
       <directionalLight
-        position={[30, 80, 30]}
-        intensity={1.2}
+        position={LIGHTING_CONFIG.DIRECTIONAL_POSITION}
+        intensity={LIGHTING_CONFIG.DIRECTIONAL_INTENSITY}
         castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-far={50}
-        shadow-camera-left={-10}
-        shadow-camera-right={10}
-        shadow-camera-top={10}
-        shadow-camera-bottom={-10}
+        shadow-mapSize-width={LIGHTING_CONFIG.SHADOW_MAP_SIZE}
+        shadow-mapSize-height={LIGHTING_CONFIG.SHADOW_MAP_SIZE}
+        shadow-camera-far={LIGHTING_CONFIG.SHADOW_CAMERA_FAR}
+        shadow-camera-left={LIGHTING_CONFIG.SHADOW_CAMERA_LEFT}
+        shadow-camera-right={LIGHTING_CONFIG.SHADOW_CAMERA_RIGHT}
+        shadow-camera-top={LIGHTING_CONFIG.SHADOW_CAMERA_TOP}
+        shadow-camera-bottom={LIGHTING_CONFIG.SHADOW_CAMERA_BOTTOM}
       />
 
       {/* Cielo estilo GTA San Andreas */}
       <Sky
-        sunPosition={[30, 80, 30]}
-        inclination={0.75}
-        azimuth={0.25}
-        turbidity={3}
-        rayleigh={0.5}
-        mieCoefficient={0.003}
-        mieDirectionalG={0.8}
-        distance={10000000}
-        sunScale={0.8}
+        sunPosition={SKY_CONFIG.SUN_POSITION}
+        inclination={SKY_CONFIG.INCLINATION}
+        azimuth={SKY_CONFIG.AZIMUTH}
+        turbidity={SKY_CONFIG.TURBIDITY}
+        rayleigh={SKY_CONFIG.RAYLEIGH}
+        mieCoefficient={SKY_CONFIG.MIE_COEFFICIENT}
+        mieDirectionalG={SKY_CONFIG.MIE_DIRECTIONAL_G}
+        distance={SKY_CONFIG.DISTANCE}
+        sunScale={SKY_CONFIG.SUN_SCALE}
       />
 
       {/* Física */}
-      <Physics gravity={[0, -9.81, 0]}>
+      <Physics gravity={PHYSICS_CONFIG.GRAVITY}>
         {/* Terreno con colisión */}
         <Terrain />
 
         {/* Jugador - altura de 1.80m, posición inicial en Y=0.9 (centro del collider) */}
-        <Player position={[0, 0.9, 0]} />
+        <Player position={[0, PLAYER_CONFIG.COLLIDER_CENTER_Y, 0]} />
 
         {/* Cargar nivel desde JSON */}
         <LevelLoader levelPath="/levels/level1.json" />
@@ -71,7 +79,7 @@ export const GameScene = () => {
 
       {/* Efectos post-procesamiento */}
       <EffectComposer>
-        <Bloom intensity={0.5} />
+        <Bloom intensity={POSTPROCESSING_CONFIG.BLOOM_INTENSITY} />
       </EffectComposer>
       </Canvas>
     </KeyboardControls>

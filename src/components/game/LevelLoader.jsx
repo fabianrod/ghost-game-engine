@@ -1,6 +1,8 @@
 import { SceneObject } from './SceneObject';
 import { ColliderObject } from './ColliderObject';
 import { useLevel } from '../../hooks/useLevel';
+import { OBJECT_CONFIG, COLLIDER_CONFIG } from '../../constants/gameConstants';
+import { validateObject } from '../../utils/objectUtils';
 
 /**
  * Componente que carga y renderiza un nivel completo desde un archivo JSON
@@ -44,16 +46,17 @@ export const LevelLoader = ({ levelPath, levelData }) => {
     <>
       {level.objects.map((obj, index) => {
         // Validar que el objeto tenga las propiedades mínimas
-        if (!obj.position) {
-          console.warn(`LevelLoader: Objeto en índice ${index} no tiene position, omitiendo`);
+        const validation = validateObject(obj, index);
+        if (!validation.valid) {
+          console.warn(`LevelLoader: ${validation.error}`);
           return null;
         }
 
         // Si es un collider, renderizar ColliderObject (invisible pero con física)
         if (obj.type === 'collider') {
-          const colliderPosition = obj.position || [0, 0, 0];
-          const colliderScale = obj.scale || [1, 1, 1];
-          const colliderRotation = obj.rotation || [0, 0, 0];
+          const colliderPosition = obj.position || OBJECT_CONFIG.DEFAULT_POSITION;
+          const colliderScale = obj.scale || OBJECT_CONFIG.DEFAULT_SCALE;
+          const colliderRotation = obj.rotation || OBJECT_CONFIG.DEFAULT_ROTATION;
           console.log(`LevelLoader: Renderizando collider ${index}:`, {
             type: obj.colliderType,
             position: colliderPosition,
@@ -64,7 +67,7 @@ export const LevelLoader = ({ levelPath, levelData }) => {
           return (
             <ColliderObject
               key={`collider-${index}-${obj.id || index}`}
-              colliderType={obj.colliderType || 'cylinder'}
+              colliderType={obj.colliderType || COLLIDER_CONFIG.DEFAULT_TYPE}
               position={colliderPosition}
               scale={colliderScale}
               rotation={colliderRotation}
@@ -83,12 +86,12 @@ export const LevelLoader = ({ levelPath, levelData }) => {
             key={`${obj.model}-${index}`}
             model={obj.model}
             position={obj.position}
-            scale={obj.scale || [1, 1, 1]}
-            rotation={obj.rotation || [0, 0, 0]}
+            scale={obj.scale || OBJECT_CONFIG.DEFAULT_SCALE}
+            rotation={obj.rotation || OBJECT_CONFIG.DEFAULT_ROTATION}
             castShadow={obj.castShadow !== false}
             receiveShadow={obj.receiveShadow !== false}
             hasCollider={obj.hasCollider !== false}
-            colliderScale={obj.colliderScale || [0.8, 0.8, 0.8]}
+            colliderScale={obj.colliderScale || OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE}
           />
         );
       })}

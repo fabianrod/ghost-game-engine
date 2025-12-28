@@ -1,6 +1,8 @@
 import { RigidBody, CapsuleCollider, CuboidCollider } from '@react-three/rapier';
 import { useMemo } from 'react';
+import { OBJECT_CONFIG, COLLIDER_CONFIG } from '../../constants/gameConstants';
 import { calculateCylinderCollider } from '../../utils/colliderUtils';
+import { degreesToRadians, validateVector } from '../../utils/mathUtils';
 
 /**
  * Componente para colliders invisibles que funcionan como límites
@@ -12,22 +14,27 @@ import { calculateCylinderCollider } from '../../utils/colliderUtils';
  * @param {Array} props.rotation - Rotación [x, y, z] en grados
  */
 export const ColliderObject = ({
-  colliderType = 'cylinder',
-  position = [0, 0, 0],
-  scale = [1, 1, 1],
-  rotation = [0, 0, 0],
+  colliderType = COLLIDER_CONFIG.DEFAULT_TYPE,
+  position = OBJECT_CONFIG.DEFAULT_POSITION,
+  scale = OBJECT_CONFIG.DEFAULT_SCALE,
+  rotation = OBJECT_CONFIG.DEFAULT_ROTATION,
 }) => {
+  // Validar y normalizar inputs
+  const validPosition = useMemo(() => validateVector(position, OBJECT_CONFIG.DEFAULT_POSITION), [position]);
+  const validScale = useMemo(() => validateVector(scale, OBJECT_CONFIG.DEFAULT_SCALE), [scale]);
+  const validRotation = useMemo(() => validateVector(rotation, OBJECT_CONFIG.DEFAULT_ROTATION), [rotation]);
+  
   // Convertir rotación de grados a radianes
   const rotationInRadians = useMemo(() => {
-    return rotation.map(angle => (angle * Math.PI) / 180);
-  }, [rotation]);
+    return degreesToRadians(validRotation);
+  }, [validRotation]);
 
   // Renderizar collider cilíndrico
   if (colliderType === 'cylinder') {
     const colliderParams = calculateCylinderCollider({
       type: 'cylinder',
       position: [0, 0, 0], // Posición relativa al RigidBody
-      scale,
+      scale: validScale,
       rotation: [0, 0, 0], // Rotación relativa al RigidBody
     });
 
@@ -68,42 +75,22 @@ export const ColliderObject = ({
     // Si el collider tiene rotación significativa en X o Z, necesitamos un RigidBody separado
     const needsSeparateRigidBody = Math.abs(colliderRotation[0]) > 0.01 || Math.abs(colliderRotation[2]) > 0.01;
 
-    if (needsSeparateRigidBody) {
-      return (
-        <RigidBody
-          type="fixed"
-          position={position}
-          rotation={combinedRotation}
-        >
-          <CapsuleCollider
-            args={[adjustedHalfHeight, adjustedRadius]}
-            position={[0, 0, 0]}
-          />
-        </RigidBody>
-      );
-    } else {
-      return (
-        <RigidBody
-          type="fixed"
-          position={position}
-          rotation={rotationInRadians}
-        >
-          <CapsuleCollider
-            args={[adjustedHalfHeight, adjustedRadius]}
-            position={[0, 0, 0]}
-          />
-        </RigidBody>
-      );
-    }
+    return (
+      <RigidBody
+        type="fixed"
+        position={validPosition}
+        rotation={needsSeparateRigidBody ? combinedRotation : rotationInRadians}
+      >
+        <CapsuleCollider
+          args={[adjustedHalfHeight, adjustedRadius]}
+          position={[0, 0, 0]}
+        />
+      </RigidBody>
+    );
   }
 
   // Renderizar collider de caja
   if (colliderType === 'box') {
-    // Asegurar que position sea un array válido
-    const validPosition = Array.isArray(position) && position.length === 3 
-      ? [Number(position[0]), Number(position[1]), Number(position[2])]
-      : [0, 0, 0];
-
     return (
       <RigidBody
         type="fixed"
@@ -111,7 +98,7 @@ export const ColliderObject = ({
         rotation={rotationInRadians}
       >
         <CuboidCollider
-          args={[scale[0] / 2, scale[1] / 2, scale[2] / 2]}
+          args={[validScale[0] / 2, validScale[1] / 2, validScale[2] / 2]}
           position={[0, 0, 0]}
         />
       </RigidBody>

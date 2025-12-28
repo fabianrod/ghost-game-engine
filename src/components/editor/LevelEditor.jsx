@@ -6,6 +6,9 @@ import { Toolbar } from './Toolbar';
 import { EditorControls } from './EditorControls';
 import './LevelEditor.css';
 import { useLevelManager } from '../../hooks/useLevelManager';
+import { EDITOR_CONFIG, LEVEL_DEFAULTS } from '../../constants/gameConstants';
+import { saveLevelToStorage, loadLevelFromStorage } from '../../utils/storageUtils';
+import { prepareLevelDataForSave, createNewObject, createNewCollider, duplicateObject, normalizeModelPath } from '../../utils/objectUtils';
 
 /**
  * Componente principal del editor de niveles
@@ -17,7 +20,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   const [availableModels, setAvailableModels] = useState([]);
   const [transformMode, setTransformMode] = useState('translate');
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [snapSize, setSnapSize] = useState(1); // Tamaño del grid para snap
+  const [snapSize, setSnapSize] = useState(EDITOR_CONFIG.DEFAULT_SNAP_SIZE);
   const [showEditorControls, setShowEditorControls] = useState(false); // Control de visibilidad del widget (oculto por defecto)
 
   // Gestor de niveles
@@ -97,19 +100,9 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         const existingId = existingObjectsMap.get(key);
         
         // Normalizar la ruta del modelo si es necesario
-        let modelPath = obj.model;
-        if (modelPath && modelPath.startsWith('/src/assets/')) {
-          // Convertir ruta de /src/assets/ a ruta relativa de import
-          // En Vite, los assets en src/assets necesitan ser importados
-          // Por ahora, intentar usar la ruta tal cual o buscar en availableModels
-          const fileName = modelPath.split('/').pop();
-          const matchingModel = availableModels.find(m => m.path.includes(fileName));
-          if (matchingModel) {
-            modelPath = matchingModel.path;
-            console.log(`🔄 Ruta de modelo normalizada: ${obj.model} -> ${modelPath}`);
-          } else {
-            console.warn(`⚠️ No se encontró modelo para: ${obj.model}`);
-          }
+        const modelPath = normalizeModelPath(obj.model, availableModels);
+        if (modelPath !== obj.model) {
+          console.log(`🔄 Ruta de modelo normalizada: ${obj.model} -> ${modelPath}`);
         }
         
         const editorObj = {
@@ -163,43 +156,16 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       // Verificar si hay un nivel en localStorage que no coincide con el actual
       try {
         const filename = currentLevel?.filename || 'level1.json';
-        const cachedData = localStorage.getItem(`level_${filename}`);
-        const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
+        const cachedData = loadLevelFromStorage(filename);
         
-        if (cachedData && cachedTimestamp) {
-          const timestamp = parseInt(cachedTimestamp, 10);
-          const age = Date.now() - timestamp;
-          const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-          
-          if (age < maxAge) {
-            try {
-              const data = JSON.parse(cachedData);
-              // Solo actualizar si el nivel es diferente
-              // IMPORTANTE: No actualizar si hay un objeto seleccionado para evitar deselección
-              if (!currentLevel || 
-                  currentLevel.filename !== filename || 
-                  JSON.stringify(currentLevel.data) !== JSON.stringify(data)) {
-                console.log(`🔄 Sincronizando nivel desde localStorage: ${filename}`);
-                // Preservar la selección actual al sincronizar
-                const currentSelectedId = selectedObject;
-                setCurrentLevel({ filename, data });
-                // Restaurar la selección después de un pequeño delay para asegurar que los objetos se carguen
-                if (currentSelectedId) {
-                  setTimeout(() => {
-                    // Verificar que el objeto todavía existe antes de restaurar la selección
-                    const levelData = JSON.parse(cachedData);
-                    const objectExists = levelData.objects?.some((obj, idx) => {
-                      // Los IDs se generan dinámicamente, así que necesitamos una forma de identificar el objeto
-                      // Por ahora, no restauramos la selección automáticamente para evitar problemas
-                      return false;
-                    });
-                    // No restaurar automáticamente para evitar problemas con IDs dinámicos
-                  }, 100);
-                }
-              }
-            } catch (parseErr) {
-              console.warn('Error parseando datos de localStorage:', parseErr);
-            }
+        if (cachedData) {
+          // Solo actualizar si el nivel es diferente
+          // IMPORTANTE: No actualizar si hay un objeto seleccionado para evitar deselección
+          if (!currentLevel || 
+              currentLevel.filename !== filename || 
+              JSON.stringify(currentLevel.data) !== JSON.stringify(cachedData)) {
+            console.log(`🔄 Sincronizando nivel desde localStorage: ${filename}`);
+            setCurrentLevel({ filename, data: cachedData });
           }
         }
       } catch (storageErr) {
@@ -211,7 +177,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const interval = setInterval(checkForLevelChanges, 1000);
     
     return () => clearInterval(interval);
-  }, [currentLevel, setCurrentLevel, selectedObject]);
+  }, [currentLevel, setCurrentLevel]);
 
   // Guardar automáticamente en localStorage cada vez que cambian los objetos
   // Esto permite que los cambios se reflejen inmediatamente en el modo juego
@@ -226,32 +192,11 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const filename = currentLevel?.filename || 'level1.json';
     
     // Preparar datos del nivel sin los IDs internos del editor
-    // También eliminar colliderScale de los colliders (solo aplica a objetos normales)
-    const levelData = {
-      name: currentLevel?.data?.name || 'Nivel Editado',
-      description: currentLevel?.data?.description || 'Nivel creado en el editor',
-      objects: objects.map(({ id, colliderScale, ...obj }) => {
-        // Si es un collider, eliminar colliderScale
-        if (obj.type === 'collider') {
-          const { colliderScale: _, ...colliderObj } = obj;
-          return colliderObj;
-        }
-        // Si es un objeto normal, mantener colliderScale si existe
-        return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
-      }),
-    };
+    const levelData = prepareLevelDataForSave(objects, currentLevel?.data);
 
     // Guardar en localStorage automáticamente
-    try {
-      const jsonString = JSON.stringify(levelData, null, 2);
-      localStorage.setItem(`level_${filename}`, jsonString);
-      localStorage.setItem(`level_${filename}_timestamp`, Date.now().toString());
-      // Solo loguear si hay cambios significativos para no saturar la consola
-      if (objects.length > 0) {
-        console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos)`);
-      }
-    } catch (storageErr) {
-      console.warn('No se pudo guardar en localStorage:', storageErr);
+    if (saveLevelToStorage(filename, levelData) && objects.length > 0) {
+      console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos)`);
     }
   }, [objects, currentLevel]); // Se ejecuta cada vez que cambian los objetos o el nivel actual
 
@@ -267,30 +212,13 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         try {
           // Intentar con level1.json por defecto
           const filename = 'level1.json';
-          const cachedData = localStorage.getItem(`level_${filename}`);
-          const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
+          const cachedData = loadLevelFromStorage(filename);
           
-          if (cachedData && cachedTimestamp) {
-            // Verificar que el cache no sea muy antiguo (más de 24 horas)
-            const timestamp = parseInt(cachedTimestamp, 10);
-            const age = Date.now() - timestamp;
-            const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-            
-            if (age < maxAge) {
-              try {
-                const data = JSON.parse(cachedData);
-                console.log(`✅ Cargando cambios sin guardar desde localStorage: ${filename}`);
-                setCurrentLevel({ filename, data });
-                // Los objetos se cargarán en el useEffect que depende de currentLevel
-                return true;
-              } catch (parseErr) {
-                console.warn('Error parseando datos de localStorage:', parseErr);
-              }
-            } else {
-              // Cache muy antiguo, limpiarlo
-              localStorage.removeItem(`level_${filename}`);
-              localStorage.removeItem(`level_${filename}_timestamp`);
-            }
+          if (cachedData) {
+            console.log(`✅ Cargando cambios sin guardar desde localStorage: ${filename}`);
+            setCurrentLevel({ filename, data: cachedData });
+            // Los objetos se cargarán en el useEffect que depende de currentLevel
+            return true;
           }
         } catch (storageErr) {
           console.warn('Error accediendo a localStorage:', storageErr);
@@ -351,23 +279,10 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   };
 
   // Manejar guardado
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     try {
       // Preparar datos del nivel
-      // También eliminar colliderScale de los colliders (solo aplica a objetos normales)
-      const levelData = {
-        name: currentLevel?.data?.name || 'Nivel Editado',
-        description: currentLevel?.data?.description || 'Nivel creado en el editor',
-        objects: objects.map(({ id, colliderScale, ...obj }) => {
-          // Si es un collider, eliminar colliderScale
-          if (obj.type === 'collider') {
-            const { colliderScale: _, ...colliderObj } = obj;
-            return colliderObj;
-          }
-          // Si es un objeto normal, mantener colliderScale si existe
-          return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
-        }),
-      };
+      const levelData = prepareLevelDataForSave(objects, currentLevel?.data);
 
       // Validar datos
       const validation = validateLevel(levelData);
@@ -395,7 +310,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       alert(`Error al guardar: ${error.message}`);
       throw error;
     }
-  };
+  }, [objects, currentLevel, validateLevel, saveLevel, listLevels, levels.length]);
 
   // Manejar exportar
   const handleExport = (levelData) => {
@@ -433,36 +348,18 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   };
 
   // Agregar un objeto al nivel
-  const handleAddObject = (modelPath) => {
-    const newObject = {
-      id: `obj-${Date.now()}-${Math.random()}`,
-      type: 'object',
-      model: modelPath,
-      position: [0, 0, 0],
-      scale: [1, 1, 1],
-      rotation: [0, 0, 0],
-      castShadow: true,
-      receiveShadow: true,
-      hasCollider: true,
-      colliderScale: [0.8, 0.8, 0.8], // Escala del collider (multiplicador del tamaño base) - más ajustado por defecto
-    };
-    setObjects([...objects, newObject]);
+  const handleAddObject = useCallback((modelPath) => {
+    const newObject = createNewObject({ model: modelPath });
+    setObjects((prev) => [...prev, newObject]);
     setSelectedObject(newObject.id);
-  };
+  }, []);
 
   // Agregar un collider invisible al nivel
-  const handleAddCollider = (colliderType) => {
-    const newCollider = {
-      id: `collider-${Date.now()}-${Math.random()}`,
-      type: 'collider',
-      colliderType: colliderType, // 'cylinder' o 'box'
-      position: [0, 0, 0],
-      scale: colliderType === 'cylinder' ? [2, 2, 2] : [2, 2, 2], // Radio X/Z y altura Y para cylinder, dimensiones para box
-      rotation: [0, 0, 0],
-    };
-    setObjects([...objects, newCollider]);
+  const handleAddCollider = useCallback((colliderType) => {
+    const newCollider = createNewCollider(colliderType);
+    setObjects((prev) => [...prev, newCollider]);
     setSelectedObject(newCollider.id);
-  };
+  }, []);
 
   // Eliminar un objeto
   const handleDeleteObject = (objectId) => {
@@ -546,15 +443,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         event.preventDefault();
         const objectToDuplicate = objects.find((obj) => obj.id === selectedObject);
         if (objectToDuplicate) {
-          const duplicatedObject = {
-            ...objectToDuplicate,
-            id: `obj-${Date.now()}-${Math.random()}`,
-            position: [
-              objectToDuplicate.position[0] + 2, // Desplazar 2 unidades en X
-              objectToDuplicate.position[1],
-              objectToDuplicate.position[2],
-            ],
-          };
+          const duplicatedObject = duplicateObject(objectToDuplicate);
           setObjects((prevObjects) => [...prevObjects, duplicatedObject]);
           setSelectedObject(duplicatedObject.id);
         }
@@ -598,22 +487,14 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   }, [selectedObject, objects]); // Incluir objects para poder duplicar
 
   // Duplicar un objeto
-  const handleDuplicateObject = (objectId) => {
+  const handleDuplicateObject = useCallback((objectId) => {
     const objectToDuplicate = objects.find((obj) => obj.id === objectId);
     if (objectToDuplicate) {
-      const duplicatedObject = {
-        ...objectToDuplicate,
-        id: `obj-${Date.now()}-${Math.random()}`,
-        position: [
-          objectToDuplicate.position[0] + 2, // Desplazar 2 unidades en X
-          objectToDuplicate.position[1],
-          objectToDuplicate.position[2],
-        ],
-      };
-      setObjects([...objects, duplicatedObject]);
+      const duplicatedObject = duplicateObject(objectToDuplicate);
+      setObjects((prev) => [...prev, duplicatedObject]);
       setSelectedObject(duplicatedObject.id);
     }
-  };
+  }, [objects]);
 
   // Crear un mapa de índices para acceso O(1) en lugar de O(n)
   const objectIndexMap = useMemo(() => {

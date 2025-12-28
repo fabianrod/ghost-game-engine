@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { RigidBody, CapsuleCollider } from '@react-three/rapier';
 import { useKeyboardControls } from '@react-three/drei';
 import { usePlayerControls } from '../../hooks/usePlayerControls';
+import { PLAYER_CONFIG, PHYSICS_CONFIG } from '../../constants/gameConstants';
 import * as THREE from 'three';
 
 /**
@@ -53,7 +54,9 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
 
     // Verificar si está en el suelo (velocidad Y muy pequeña y posición Y cerca del suelo)
     // El personaje mide 1.80m, así que está en el suelo si Y está cerca de 0.9 (centro del collider)
-    isOnGround.current = Math.abs(currentVelocity.y) < 0.5 && playerPosition.y < 1.0;
+    isOnGround.current = 
+      Math.abs(currentVelocity.y) < PHYSICS_CONFIG.GROUND_CHECK_THRESHOLD && 
+      playerPosition.y < PHYSICS_CONFIG.GROUND_Y_THRESHOLD;
     
     // Permitir salto si está en el suelo
     if (isOnGround.current) {
@@ -63,13 +66,13 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
     // Manejar salto
     if (jump && canJump.current && isOnGround.current) {
       const jumpVelocity = currentVelocity.clone();
-      jumpVelocity.y = 6; // Fuerza de salto
+      jumpVelocity.y = PLAYER_CONFIG.JUMP_FORCE;
       rigidBodyRef.current.setLinvel(jumpVelocity);
       canJump.current = false;
     }
 
     // Movimiento del jugador - velocidad aumentada para FPS
-    const speed = 10;
+    const speed = PLAYER_CONFIG.SPEED;
     const directionVector = direction.current;
 
     // Resetear dirección
@@ -117,9 +120,10 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
     // Sincronizar cámara con la posición del jugador
     // Altura de los ojos: 1.65m desde el suelo (para persona de 1.80m)
     // El centro del collider está en Y = 0.9, así que los ojos están a 0.9 + 0.75 = 1.65m
+    const eyeOffset = PLAYER_CONFIG.EYE_HEIGHT - PLAYER_CONFIG.COLLIDER_CENTER_Y;
     camera.position.set(
       playerPosition.x,
-      playerPosition.y + 0.75, // Offset para la altura de los ojos (1.65m desde el suelo)
+      playerPosition.y + eyeOffset,
       playerPosition.z
     );
   });
@@ -133,13 +137,16 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
       enabledRotations={[false, false, false]} // Prevenir rotación del cuerpo
       lockRotations
       canSleep={false} // Evitar que el cuerpo se duerma y no responda
-      linearDamping={0.1} // Amortiguación mínima para movimiento más rápido y responsivo
+      linearDamping={PLAYER_CONFIG.LINEAR_DAMPING} // Amortiguación mínima para movimiento más rápido y responsivo
     >
       {/* CapsuleCollider: args son [halfHeight, radius] */}
       {/* Personaje de 1.80m: halfHeight=0.75, radius=0.15 */}
       {/* Altura total = halfHeight*2 + radius*2 = 1.5 + 0.3 = 1.8m */}
       {/* Centro del collider en Y=0.9 para que la parte inferior esté en Y=0 */}
-      <CapsuleCollider args={[0.75, 0.15]} position={[0, 0.9, 0]} />
+      <CapsuleCollider 
+        args={[PLAYER_CONFIG.COLLIDER_HALF_HEIGHT, PLAYER_CONFIG.COLLIDER_RADIUS]} 
+        position={[0, PLAYER_CONFIG.COLLIDER_CENTER_Y, 0]} 
+      />
       {/* No renderizamos el jugador visualmente ya que es un FPS (primera persona) */}
     </RigidBody>
   );

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { loadLevelFromStorage } from '../utils/storageUtils';
 
 /**
  * Hook para cargar datos de un nivel desde un archivo JSON
@@ -23,44 +24,12 @@ export const useLevel = (levelPath) => {
     const filename = levelPath.split('/').pop();
     
     // Primero intentar cargar desde localStorage (si fue guardado desde el editor)
-    const tryLoadFromLocalStorage = () => {
-      try {
-        const cachedData = localStorage.getItem(`level_${filename}`);
-        const cachedTimestamp = localStorage.getItem(`level_${filename}_timestamp`);
-        
-        if (cachedData && cachedTimestamp) {
-          // Verificar que el cache no sea muy antiguo (más de 24 horas)
-          const timestamp = parseInt(cachedTimestamp, 10);
-          const age = Date.now() - timestamp;
-          const maxAge = 24 * 60 * 60 * 1000; // 24 horas
-          
-          if (age < maxAge) {
-            try {
-              const data = JSON.parse(cachedData);
-              console.log(`✅ Nivel cargado desde localStorage: ${filename}`);
-              setLevelData(data);
-              setLoading(false);
-              return true;
-            } catch (parseErr) {
-              console.warn('Error parseando datos de localStorage:', parseErr);
-              // Continuar con carga desde archivo
-            }
-          } else {
-            // Cache muy antiguo, limpiarlo
-            localStorage.removeItem(`level_${filename}`);
-            localStorage.removeItem(`level_${filename}_timestamp`);
-          }
-        }
-      } catch (storageErr) {
-        console.warn('Error accediendo a localStorage:', storageErr);
-        // Continuar con carga desde archivo
-      }
-      return false;
-    };
-
-    // Intentar cargar desde localStorage primero
-    if (tryLoadFromLocalStorage()) {
-      return; // Ya cargamos desde localStorage
+    const cachedData = loadLevelFromStorage(filename);
+    if (cachedData) {
+      console.log(`✅ Nivel cargado desde localStorage: ${filename}`);
+      setLevelData(cachedData);
+      setLoading(false);
+      return;
     }
 
     // Si no hay datos en localStorage, cargar desde el archivo JSON

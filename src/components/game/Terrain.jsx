@@ -1,6 +1,7 @@
 import { useLoader } from '@react-three/fiber';
 import { TextureLoader, RepeatWrapping } from 'three';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
+import { TERRAIN_CONFIG } from '../../constants/gameConstants';
 import grassTexture from '../../assets/textures/grass-min.jpg';
 
 /**
@@ -14,7 +15,7 @@ export const Terrain = ({ hasPhysics = true }) => {
   // Repetir la textura para que cubra todo el terreno
   texture.wrapS = RepeatWrapping;
   texture.wrapT = RepeatWrapping;
-  texture.repeat.set(10, 10);
+  texture.repeat.set(TERRAIN_CONFIG.TEXTURE_REPEAT, TERRAIN_CONFIG.TEXTURE_REPEAT);
 
   const terrainMesh = (
     <mesh
@@ -22,7 +23,7 @@ export const Terrain = ({ hasPhysics = true }) => {
       position={[0, 0, 0]}
       receiveShadow
     >
-      <planeGeometry args={[100, 100]} />
+      <planeGeometry args={[TERRAIN_CONFIG.SIZE, TERRAIN_CONFIG.SIZE]} />
       <meshStandardMaterial map={texture} />
     </mesh>
   );
@@ -42,7 +43,7 @@ export const Terrain = ({ hasPhysics = true }) => {
       {/* La parte superior del collider está en Y=0.1, que es donde el jugador debería tocar */}
       <RigidBody type="fixed" position={[0, 0, 0]}>
         <CuboidCollider 
-          args={[50, 0.1, 50]} 
+          args={[TERRAIN_CONFIG.COLLIDER_HALF_X, TERRAIN_CONFIG.COLLIDER_HALF_Y, TERRAIN_CONFIG.COLLIDER_HALF_Z]} 
           position={[0, 0, 0]} 
         />
       </RigidBody>
