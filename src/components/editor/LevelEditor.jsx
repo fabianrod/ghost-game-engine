@@ -79,6 +79,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Cargar objetos del nivel actual
   useEffect(() => {
     if (currentLevel && currentLevel.data && currentLevel.data.objects) {
+      console.log('📦 Cargando objetos del nivel:', currentLevel.data.objects.length, 'objetos');
+      
       // Preservar la selección actual y los IDs existentes
       const currentSelectedId = selectedObject;
       const existingObjectsMap = new Map();
@@ -94,15 +96,42 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         const key = `${obj.position[0]},${obj.position[1]},${obj.position[2]}`;
         const existingId = existingObjectsMap.get(key);
         
-        return {
+        // Normalizar la ruta del modelo si es necesario
+        let modelPath = obj.model;
+        if (modelPath && modelPath.startsWith('/src/assets/')) {
+          // Convertir ruta de /src/assets/ a ruta relativa de import
+          // En Vite, los assets en src/assets necesitan ser importados
+          // Por ahora, intentar usar la ruta tal cual o buscar en availableModels
+          const fileName = modelPath.split('/').pop();
+          const matchingModel = availableModels.find(m => m.path.includes(fileName));
+          if (matchingModel) {
+            modelPath = matchingModel.path;
+            console.log(`🔄 Ruta de modelo normalizada: ${obj.model} -> ${modelPath}`);
+          } else {
+            console.warn(`⚠️ No se encontró modelo para: ${obj.model}`);
+          }
+        }
+        
+        const editorObj = {
           ...obj,
+          model: modelPath || obj.model,
           // Preservar ID existente si encontramos un objeto en la misma posición
           // De lo contrario, generar uno nuevo solo si no tiene ID
           id: existingId || obj.id || `obj-${index}-${Date.now()}-${Math.random()}`,
           colliderScale: obj.colliderScale || [0.8, 0.8, 0.8],
         };
+        
+        console.log(`  ✓ Objeto ${index}:`, {
+          type: editorObj.type,
+          model: editorObj.model,
+          position: editorObj.position,
+          id: editorObj.id
+        });
+        
+        return editorObj;
       });
       
+      console.log(`✅ ${editorObjects.length} objetos cargados en el editor`);
       setObjects(editorObjects);
       
       // Si había un objeto seleccionado, mantenerlo si todavía existe
@@ -116,13 +145,16 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       }
     } else if (currentLevel && currentLevel.data) {
       // Nivel sin objetos
+      console.log('📦 Nivel sin objetos');
       setObjects([]);
       // NO deseleccionar automáticamente - solo si el usuario lo hace explícitamente
       // if (selectedObject) {
       //   setSelectedObject(null);
       // }
+    } else if (!currentLevel) {
+      console.log('📦 No hay nivel cargado');
     }
-  }, [currentLevel]); // Remover selectedObject y objects de dependencias para evitar loops infinitos
+  }, [currentLevel, availableModels]); // Incluir availableModels para normalizar rutas
 
   // Sincronizar con cambios en localStorage (cuando se selecciona un nivel desde App.jsx)
   useEffect(() => {
@@ -215,8 +247,11 @@ export const LevelEditor = ({ mode, onModeChange }) => {
 
   // Inicializar con nivel nuevo si no hay nivel cargado
   // Primero intentar cargar desde localStorage si hay cambios sin guardar
+  // Luego intentar cargar desde archivo
   useEffect(() => {
     if (!currentLevel) {
+      console.log('🔍 Inicializando editor: buscando nivel...');
+      
       // Intentar cargar desde localStorage primero (cambios sin guardar)
       const tryLoadFromLocalStorage = () => {
         try {
@@ -253,11 +288,34 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         return false;
       };
 
-      // Si no hay datos en localStorage, crear nivel nuevo
+      // Si no hay datos en localStorage, intentar cargar desde archivo
+      const tryLoadFromFile = async () => {
+        try {
+          const filename = 'level1.json';
+          console.log(`📂 Intentando cargar nivel desde archivo: ${filename}`);
+          const levelData = await loadLevel(filename);
+          if (levelData) {
+            console.log(`✅ Nivel cargado desde archivo: ${filename}`);
+            return true;
+          }
+        } catch (err) {
+          console.warn('No se pudo cargar nivel desde archivo:', err.message);
+        }
+        return false;
+      };
+
+      // Intentar cargar desde localStorage primero
       if (!tryLoadFromLocalStorage()) {
-        const newLevel = createNewLevel();
-        setCurrentLevel({ filename: null, data: newLevel });
-        setObjects([]);
+        // Si no hay en localStorage, intentar desde archivo
+        tryLoadFromFile().then(loaded => {
+          if (!loaded) {
+            // Si no se pudo cargar, crear nivel nuevo
+            console.log('📝 Creando nivel nuevo');
+            const newLevel = createNewLevel();
+            setCurrentLevel({ filename: null, data: newLevel });
+            setObjects([]);
+          }
+        });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -373,6 +431,20 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     setSelectedObject(newObject.id);
   };
 
+  // Agregar un collider invisible al nivel
+  const handleAddCollider = (colliderType) => {
+    const newCollider = {
+      id: `collider-${Date.now()}-${Math.random()}`,
+      type: 'collider',
+      colliderType: colliderType, // 'cylinder' o 'box'
+      position: [0, 0, 0],
+      scale: colliderType === 'cylinder' ? [2, 2, 2] : [2, 2, 2], // Radio X/Z y altura Y para cylinder, dimensiones para box
+      rotation: [0, 0, 0],
+    };
+    setObjects([...objects, newCollider]);
+    setSelectedObject(newCollider.id);
+  };
+
   // Eliminar un objeto
   const handleDeleteObject = (objectId) => {
     setObjects(objects.filter((obj) => obj.id !== objectId));
@@ -460,6 +532,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         <ObjectLibrary
           models={availableModels}
           onAddObject={handleAddObject}
+          onAddCollider={handleAddCollider}
         />
         <EditorCanvas
           objects={objects}

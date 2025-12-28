@@ -1,28 +1,5 @@
 {
-  "name": "Nuevo Nivel",
-  "description": "Nivel creado en el editor",
-  "objects": [
-    {
-      "type": "object",
-      "model": "/src/assets/models/oak_trees.glb",
-      "position": [
-        0,
-        0.015571182593122623,
-        0
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "rotation": [
-        0,
-        0,
-        0
-      ],
-      "castShadow": true,
-      "receiveShadow": true,
-      "hasCollider": true
-    }
-  ]
+  "name": "Nivel 1",
+  "description": "Nivel inicial del juego",
+  "objects": []
 }

@@ -79,3 +79,21 @@
   border: 1px dashed #4a4a4a;
 }
 
+.library-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.collider-item {
+  border-left: 3px solid #ff6b00;
+}
+

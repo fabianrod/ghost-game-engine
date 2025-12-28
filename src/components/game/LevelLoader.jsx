@@ -1,4 +1,5 @@
 import { SceneObject } from './SceneObject';
+import { ColliderObject } from './ColliderObject';
 import { useLevel } from '../../hooks/useLevel';
 
 /**
@@ -27,12 +28,37 @@ export const LevelLoader = ({ levelPath, levelData }) => {
     return null;
   }
 
+  // Si no hay objetos, retornar null sin error
+  if (level.objects.length === 0) {
+    console.log('LevelLoader: Nivel cargado sin objetos');
+    return null;
+  }
+
   return (
     <>
       {level.objects.map((obj, index) => {
         // Validar que el objeto tenga las propiedades mínimas
-        if (!obj.model || !obj.position) {
-          console.warn(`LevelLoader: Objeto en índice ${index} no tiene model o position, omitiendo`);
+        if (!obj.position) {
+          console.warn(`LevelLoader: Objeto en índice ${index} no tiene position, omitiendo`);
+          return null;
+        }
+
+        // Si es un collider, renderizar ColliderObject (invisible pero con física)
+        if (obj.type === 'collider') {
+          return (
+            <ColliderObject
+              key={`collider-${index}-${obj.id || index}`}
+              colliderType={obj.colliderType || 'cylinder'}
+              position={obj.position}
+              scale={obj.scale || [1, 1, 1]}
+              rotation={obj.rotation || [0, 0, 0]}
+            />
+          );
+        }
+
+        // Si es un objeto normal, validar que tenga model
+        if (!obj.model) {
+          console.warn(`LevelLoader: Objeto en índice ${index} no tiene model, omitiendo`);
           return null;
         }
 

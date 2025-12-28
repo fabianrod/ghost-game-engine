@@ -2,6 +2,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Sky, TransformControls, Grid, useGLTF } from '@react-three/drei';
 import { Terrain } from '../game/Terrain';
 import { SceneObject } from '../game/SceneObject';
+import { ColliderCylinder } from './ColliderCylinder';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
 import './EditorCanvas.css';
@@ -91,21 +92,48 @@ export const EditorCanvas = ({
         />
 
         {/* Objetos del nivel (sin física en editor) */}
-        {objects.map((obj) => (
-          <EditorSceneObject
-            key={obj.id}
-            object={obj}
-            isSelected={selectedObject === obj.id}
-            onSelect={() => onSelectObject(obj.id)}
-            onUpdate={(updates) => onUpdateObject(obj.id, updates)}
-            orbitControlsRef={orbitControlsRef}
-            transformMode={transformMode}
-            snapEnabled={snapEnabled}
-            snapSize={snapSize}
-            transformingObjectIdRef={transformingObjectIdRef}
-            lastTransformEndTimeRef={lastTransformEndTimeRef}
-          />
-        ))}
+        {objects.map((obj) => {
+          // Si es un collider, renderizar como collider visual
+          if (obj.type === 'collider') {
+            return (
+              <EditorColliderObject
+                key={obj.id}
+                object={obj}
+                isSelected={selectedObject === obj.id}
+                onSelect={() => onSelectObject(obj.id)}
+                onUpdate={(updates) => onUpdateObject(obj.id, updates)}
+                orbitControlsRef={orbitControlsRef}
+                transformMode={transformMode}
+                snapEnabled={snapEnabled}
+                snapSize={snapSize}
+                transformingObjectIdRef={transformingObjectIdRef}
+                lastTransformEndTimeRef={lastTransformEndTimeRef}
+              />
+            );
+          }
+          
+          // Si es un objeto normal, verificar que tenga un modelo válido
+          if (!obj.model || obj.model.trim() === '') {
+            console.warn('Objeto sin modelo válido:', obj.id);
+            return null;
+          }
+          
+          return (
+            <EditorSceneObject
+              key={obj.id}
+              object={obj}
+              isSelected={selectedObject === obj.id}
+              onSelect={() => onSelectObject(obj.id)}
+              onUpdate={(updates) => onUpdateObject(obj.id, updates)}
+              orbitControlsRef={orbitControlsRef}
+              transformMode={transformMode}
+              snapEnabled={snapEnabled}
+              snapSize={snapSize}
+              transformingObjectIdRef={transformingObjectIdRef}
+              lastTransformEndTimeRef={lastTransformEndTimeRef}
+            />
+          );
+        })}
       </Canvas>
     </div>
   );
@@ -403,7 +431,6 @@ const EditorSceneObject = memo(({
   const groupRef = useRef();
   const transformRef = useRef();
   const scaleControlsGroupRef = useRef();
-  const colliderControlsGroupRef = useRef();
 
   // Estado de arrastre - usar ref para evitar re-renders
   const isDragging = useRef(false);
@@ -420,11 +447,25 @@ const EditorSceneObject = memo(({
   const minYOffsetRef = useRef(0);
   const offsetCalculatedRef = useRef(false);
   
+  // Validar que object.model existe antes de cargar
+  const hasValidModel = object.model && typeof object.model === 'string' && object.model.trim() !== '';
+  
+  // Si no hay modelo válido, no renderizar este componente
+  if (!hasValidModel) {
+    console.warn('EditorSceneObject: objeto sin modelo válido:', object.id);
+    return null;
+  }
+  
   // Cargar el modelo UNA SOLA VEZ para calcular el bounding box original (sin transformaciones)
   const { scene: modelScene } = useGLTF(object.model);
   const clonedModelScene = useMemo(() => {
     if (modelScene) {
-      return modelScene.clone();
+      try {
+        return modelScene.clone();
+      } catch (error) {
+        console.warn('Error clonando modelo:', error);
+        return null;
+      }
     }
     return null;
   }, [modelScene]);
@@ -453,38 +494,6 @@ const EditorSceneObject = memo(({
     return offset;
   }, [modelBoundingBox, object.scale]); // Solo recalcular cuando cambia el modelo o escala
 
-  // Calcular tamaño y posición del collider para visualización
-  // Mostrar siempre que haya un modelBoundingBox (no requiere hasCollider para visualización en editor)
-  const colliderVisualization = useMemo(() => {
-    if (!modelBoundingBox) {
-      console.log('[Collider] No hay modelBoundingBox');
-      return null;
-    }
-    
-    const size = modelBoundingBox.getSize(new THREE.Vector3());
-    const center = modelBoundingBox.getCenter(new THREE.Vector3());
-    const colliderScale = object.colliderScale || [0.8, 0.8, 0.8];
-    
-    // Aplicar la escala personalizada del collider
-    const colliderSize = new THREE.Vector3(
-      size.x * object.scale[0] * colliderScale[0],
-      size.y * object.scale[1] * colliderScale[1],
-      size.z * object.scale[2] * colliderScale[2]
-    );
-    
-    console.log('[Collider] Visualización calculada:', {
-      size: colliderSize,
-      center: center,
-      hasCollider: object.hasCollider,
-      colliderScale: colliderScale
-    });
-    
-    return {
-      size: colliderSize,
-      center: center,
-    };
-  }, [modelBoundingBox, object.scale, object.colliderScale]);
-  
   // Actualizar el ref cuando cambia el offset calculado
   useEffect(() => {
     minYOffsetRef.current = modelOffset;
@@ -494,12 +503,6 @@ const EditorSceneObject = memo(({
       hasAdjustedInitialPosition.current = false;
     }
   }, [modelOffset, object.model]);
-  
-  // Inicializar currentColliderScaleRef con el valor actual del colliderScale
-  useEffect(() => {
-    const currentColliderScale = object.colliderScale || [0.8, 0.8, 0.8];
-    currentColliderScaleRef.current.set(...currentColliderScale);
-  }, [object.colliderScale]);
   
   // Memoizar transformaciones para evitar cálculos innecesarios
   const rotationInRadians = useMemo(() => {
@@ -567,13 +570,6 @@ const EditorSceneObject = memo(({
       scaleControlsGroupRef.current.updateMatrixWorld();
     }
 
-    // Sincronizar posición del grupo de controles del collider con el objeto
-    if (isSelected && transformMode === 'collider' && colliderControlsGroupRef.current && colliderVisualization) {
-      colliderControlsGroupRef.current.position.copy(groupRef.current.position);
-      colliderControlsGroupRef.current.rotation.copy(groupRef.current.rotation);
-      colliderControlsGroupRef.current.updateMatrixWorld();
-    }
-    
     // Forzar posición Y durante arrastre horizontal para evitar que se hunda
     if (isTransforming.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && transformMode !== 'scale') {
       const currentY = groupRef.current.position.y;
@@ -990,14 +986,6 @@ const EditorSceneObject = memo(({
   const initialScaleRef = useRef(new THREE.Vector3());
   const initialMousePosRef = useRef(new THREE.Vector2());
 
-  // Refs para el control del collider
-  const colliderRaycasterRef = useRef(new THREE.Raycaster());
-  const colliderMouseRef = useRef(new THREE.Vector2());
-  const activeColliderAxisRef = useRef(null);
-  const initialColliderScaleRef = useRef(new THREE.Vector3());
-  const initialColliderMousePosRef = useRef(new THREE.Vector2());
-  const currentColliderScaleRef = useRef(new THREE.Vector3());
-
   // Crear controles de escalamiento simplificados (solo ejes principales)
   useEffect(() => {
     if (!isSelected || transformMode !== 'scale' || !groupRef.current || !scaleControlsGroupRef.current) {
@@ -1094,98 +1082,6 @@ const EditorSceneObject = memo(({
       console.error('Error creando controles de escalamiento:', error);
     }
   }, [isSelected, transformMode, object.scale]);
-
-  // Crear control visual del collider (similar al control de escalar pero naranja)
-  useEffect(() => {
-    if (!isSelected || !colliderVisualization || !colliderControlsGroupRef.current || transformMode !== 'collider') {
-      // Limpiar controles si no están seleccionados o no tienen collider
-      if (colliderControlsGroupRef.current) {
-        try {
-          colliderControlsGroupRef.current.clear();
-        } catch (e) {
-          // Ignorar errores al limpiar
-        }
-      }
-      return;
-    }
-
-    try {
-      const group = colliderControlsGroupRef.current;
-      if (!group) return;
-      
-      group.clear();
-
-      // Tamaños optimizados para mejor visibilidad y usabilidad (igual que el control de escalar)
-      const axisLength = 2.5; // Longitud de los ejes
-      const handleSize = 0.3; // Tamaño de los handles cuadrados
-      const centerHandleSize = 0.35; // Tamaño del handle central (un poco más grande)
-
-      // Color naranja para todos los controles del collider
-      const colliderColor = 0xff6600;
-
-      // Crear cubo central para escalado proporcional del collider
-      const centerGeometry = new THREE.BoxGeometry(centerHandleSize, centerHandleSize, centerHandleSize);
-      const centerMaterial = new THREE.MeshBasicMaterial({ 
-        color: colliderColor,
-        transparent: true,
-        opacity: 0.9,
-      });
-      const centerHandle = new THREE.Mesh(centerGeometry, centerMaterial);
-      centerHandle.userData.isColliderControl = true;
-      centerHandle.userData.isHandle = true;
-      centerHandle.userData.isCenter = true;
-      centerHandle.userData.axis = 'uniform';
-      group.add(centerHandle);
-
-      // Crear controles para cada eje (solo ejes y handles cuadrados) - similar al control de escalar
-      ['x', 'y', 'z'].forEach((axis) => {
-        const direction = new THREE.Vector3();
-        direction[axis] = 1;
-
-        // Línea del eje (simple y limpia)
-        const lineGeometry = new THREE.BufferGeometry().setFromPoints([
-          new THREE.Vector3(0, 0, 0),
-          direction.clone().multiplyScalar(axisLength),
-        ]);
-        const lineMaterial = new THREE.LineBasicMaterial({ 
-          color: colliderColor, 
-          linewidth: 2,
-          transparent: true,
-          opacity: 0.7
-        });
-        const line = new THREE.Line(lineGeometry, lineMaterial);
-        line.userData.isColliderControl = true;
-        line.userData.axis = axis;
-        group.add(line);
-
-        // Handle interactivo cuadrado al final del eje
-        const handleGeometry = new THREE.BoxGeometry(handleSize, handleSize, handleSize);
-        const handleMaterial = new THREE.MeshBasicMaterial({ 
-          color: colliderColor,
-          transparent: true,
-          opacity: 0.9,
-        });
-        const handle = new THREE.Mesh(handleGeometry, handleMaterial);
-        handle.position.copy(direction.clone().multiplyScalar(axisLength));
-        handle.userData.isColliderControl = true;
-        handle.userData.isHandle = true;
-        handle.userData.axis = axis;
-        group.add(handle);
-      });
-
-      return () => {
-        if (group) {
-          try {
-            group.clear();
-          } catch (e) {
-            // Ignorar errores al limpiar
-          }
-        }
-      };
-    } catch (error) {
-      console.error('Error creando controles del collider:', error);
-    }
-  }, [isSelected, object.hasCollider, object.scale, colliderVisualization, transformMode]);
 
   // Manejar interacción con controles de escalamiento personalizados
   // Usar useThree dentro de un componente interno para evitar problemas de contexto
@@ -1374,193 +1270,6 @@ const EditorSceneObject = memo(({
     return null;
   };
 
-  // Manejar interacción con controles del collider
-  const ColliderControlsInteraction = () => {
-    const { camera, gl } = useThree();
-    
-    useEffect(() => {
-      if (!isSelected || !colliderControlsGroupRef.current || !colliderVisualization || !camera || !gl || transformMode !== 'collider') {
-        return;
-      }
-
-      const handleMouseDown = (event) => {
-        if (!colliderControlsGroupRef.current) return;
-
-        const rect = gl.domElement.getBoundingClientRect();
-        colliderMouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-        colliderMouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-        colliderRaycasterRef.current.setFromCamera(colliderMouseRef.current, camera);
-        const intersects = colliderRaycasterRef.current.intersectObjects(
-          colliderControlsGroupRef.current.children,
-          true
-        );
-
-        if (intersects.length > 0) {
-          // Priorizar el centro si hay intersección con él
-          let selectedIntersect = intersects[0];
-          const centerIntersect = intersects.find(int => int.object.userData.isCenter);
-          if (centerIntersect) {
-            selectedIntersect = centerIntersect;
-          } else {
-            // Priorizar handles sobre líneas
-            const handleIntersect = intersects.find(int => int.object.userData.isHandle);
-            if (handleIntersect) {
-              selectedIntersect = handleIntersect;
-            }
-          }
-
-          if (selectedIntersect.object.userData.isColliderControl) {
-            event.preventDefault();
-            event.stopPropagation();
-            
-            const currentColliderScale = object.colliderScale || [0.8, 0.8, 0.8];
-            // Detectar qué eje se está arrastrando (similar al control de escalar)
-            activeColliderAxisRef.current = selectedIntersect.object.userData.axis || 'uniform';
-            initialColliderScaleRef.current.set(...currentColliderScale);
-            initialColliderMousePosRef.current.set(event.clientX, event.clientY);
-            isTransforming.current = true;
-            isDragging.current = true;
-
-            // Marcar este objeto como el que se está transformando
-            if (transformingObjectIdRef) {
-              transformingObjectIdRef.current = object.id;
-            }
-
-            if (orbitControlsRef.current) {
-              orbitControlsRef.current.enabled = false;
-            }
-          }
-        }
-      };
-
-      const handleMouseMove = (event) => {
-        if (!activeColliderAxisRef.current || !isTransforming.current) return;
-
-        // Calcular el movimiento del mouse en la pantalla
-        const currentMousePos = new THREE.Vector2(event.clientX, event.clientY);
-        const deltaY = initialColliderMousePosRef.current.y - currentMousePos.y; // Invertido: arriba aumenta, abajo disminuye
-        
-        // Factor de escalamiento basado en el movimiento vertical del mouse
-        // Más intuitivo: mover hacia arriba aumenta, mover hacia abajo disminuye
-        const sensitivity = 0.01;
-        const scaleDelta = deltaY * sensitivity;
-        const scaleFactor = 1 + scaleDelta;
-        
-        const newColliderScale = initialColliderScaleRef.current.clone();
-        
-        // Escalado proporcional (uniforme) o por eje individual (similar al control de escalar)
-        if (activeColliderAxisRef.current === 'uniform') {
-          // Escalar todos los ejes proporcionalmente
-          newColliderScale.multiplyScalar(scaleFactor);
-          
-          // Aplicar snap si está habilitado
-          if (snapEnabled) {
-            newColliderScale.x = Math.round(newColliderScale.x / 0.1) * 0.1;
-            newColliderScale.y = Math.round(newColliderScale.y / 0.1) * 0.1;
-            newColliderScale.z = Math.round(newColliderScale.z / 0.1) * 0.1;
-          }
-          
-          // Limitar escala mínima y máxima (aplicar a todos los ejes)
-          const minScale = Math.min(newColliderScale.x, newColliderScale.y, newColliderScale.z);
-          const maxScale = Math.max(newColliderScale.x, newColliderScale.y, newColliderScale.z);
-          
-          if (minScale < 0.1) {
-            const factor = 0.1 / minScale;
-            newColliderScale.multiplyScalar(factor);
-          } else if (maxScale > 5) {
-            const factor = 5 / maxScale;
-            newColliderScale.multiplyScalar(factor);
-          }
-        } else {
-          // Escalar solo el eje seleccionado
-          newColliderScale[activeColliderAxisRef.current] *= scaleFactor;
-
-          // Aplicar snap si está habilitado
-          if (snapEnabled) {
-            newColliderScale[activeColliderAxisRef.current] = Math.round(newColliderScale[activeColliderAxisRef.current] / 0.1) * 0.1;
-          }
-
-          // Limitar escala mínima y máxima
-          newColliderScale[activeColliderAxisRef.current] = Math.max(0.1, Math.min(5, newColliderScale[activeColliderAxisRef.current]));
-        }
-
-        // Actualizar el ref del colliderScale actual
-        currentColliderScaleRef.current.copy(newColliderScale);
-
-        // Actualizar el estado inmediatamente
-        onUpdate({
-          colliderScale: [newColliderScale.x, newColliderScale.y, newColliderScale.z],
-        });
-      };
-
-      const handleMouseUp = (event) => {
-        if (activeColliderAxisRef.current) {
-          // Prevenir el evento click que se disparará después del mouseup
-          // Esto evita que el RaycastHandler deseleccione el objeto
-          if (event) {
-            event.preventDefault();
-            event.stopPropagation();
-          }
-          
-          activeColliderAxisRef.current = null;
-          
-          // Registrar el tiempo de finalización
-          if (lastTransformEndTimeRef) {
-            lastTransformEndTimeRef.current = Date.now();
-            console.log('[ColliderControls] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
-          }
-          
-          // Mantener los flags activos por más tiempo para evitar deselección
-          // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
-          // para que RaycastHandler sepa que este objeto se acaba de transformar
-          setTimeout(() => {
-            isTransforming.current = false;
-            isDragging.current = false;
-            // NO limpiar transformingObjectIdRef inmediatamente
-            // Mantenerlo activo por más tiempo (3 segundos total) para que RaycastHandler
-            // pueda detectar que este objeto se acaba de transformar y no lo deseleccione
-            setTimeout(() => {
-              // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
-              if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
-                transformingObjectIdRef.current = null;
-              }
-            }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
-          }, 500);
-
-          if (orbitControlsRef.current) {
-            orbitControlsRef.current.enabled = true;
-          }
-        }
-      };
-
-      // Prevenir el evento click después de un arrastre
-      const handleClick = (event) => {
-        // Si acabamos de terminar un arrastre, prevenir el click
-        if (activeColliderAxisRef.current !== null || isTransforming.current || isDragging.current) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-      };
-
-      const canvas = gl.domElement;
-      canvas.addEventListener('mousedown', handleMouseDown);
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      canvas.addEventListener('click', handleClick, true); // Usar capture phase para interceptar antes
-
-      return () => {
-        canvas.removeEventListener('mousedown', handleMouseDown);
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-        canvas.removeEventListener('click', handleClick, true);
-      };
-    }, [isSelected, object.hasCollider, object.colliderScale, object.scale, colliderVisualization, modelBoundingBox, camera, gl, onUpdate, orbitControlsRef, transformMode, object.id, transformingObjectIdRef, lastTransformEndTimeRef, snapEnabled]);
-    
-    return null;
-  };
-
   return (
     <>
       <group
@@ -1627,9 +1336,6 @@ const EditorSceneObject = memo(({
       {/* Componente para manejar interacción con controles de escalamiento */}
       {isSelected && transformMode === 'scale' && <ScaleControlsInteraction />}
       
-      {/* Componente para manejar interacción con controles del collider */}
-      {isSelected && transformMode === 'collider' && <ColliderControlsInteraction />}
-      
       {/* Controles de transformación - usar control personalizado simplificado para scale */}
       {isSelected && groupReadyRef.current && groupRef.current && transformMode === 'scale' && (
         <group 
@@ -1637,17 +1343,9 @@ const EditorSceneObject = memo(({
           visible={true}
         />
       )}
-
-      {/* Controles del collider - aparecen cuando está en modo collider */}
-      {isSelected && transformMode === 'collider' && groupReadyRef.current && groupRef.current && colliderVisualization && (
-        <group 
-          ref={colliderControlsGroupRef}
-          visible={true}
-        />
-      )}
       
-      {/* TransformControls - solo para translate y rotate (no para scale ni collider) */}
-      {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && transformMode !== 'collider' && (
+      {/* TransformControls - solo para translate y rotate (no para scale) */}
+      {isSelected && groupReadyRef.current && groupRef.current && transformMode !== 'scale' && (
         <>
           <TransformControls
             ref={transformRef}
@@ -1718,6 +1416,393 @@ const EditorSceneObject = memo(({
   }
   
   // Todas las props son iguales, no re-renderizar
+  return true;
+});
+
+/**
+ * Componente de collider en el editor con capacidad de selección y transformación
+ * Similar a EditorSceneObject pero para colliders invisibles
+ */
+const EditorColliderObject = memo(({
+  object,
+  isSelected,
+  onSelect,
+  onUpdate,
+  orbitControlsRef,
+  transformMode = 'translate',
+  snapEnabled = true,
+  snapSize = 1,
+  transformingObjectIdRef,
+  lastTransformEndTimeRef,
+}) => {
+  const groupRef = useRef();
+  const transformRef = useRef();
+
+  // Estado de arrastre
+  const isDragging = useRef(false);
+  const isTransforming = useRef(false);
+
+  // Cache para valores anteriores
+  const lastPositionRef = useRef(new THREE.Vector3(...object.position));
+  const lastRotationRef = useRef(new THREE.Euler(...object.rotation.map(deg => (deg * Math.PI) / 180)));
+  const lastScaleRef = useRef(new THREE.Vector3(...object.scale));
+
+  // Inicializar posición del grupo
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.position.set(...object.position);
+      groupRef.current.rotation.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
+      groupRef.current.scale.set(...object.scale);
+      groupRef.current.updateMatrixWorld();
+      
+      lastPositionRef.current.set(...object.position);
+      lastRotationRef.current.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
+      lastScaleRef.current.set(...object.scale);
+    }
+  }, []);
+
+  // Función para aplicar snap a un valor
+  const applySnap = useCallback((value) => {
+    if (!snapEnabled) return value;
+    return Math.round(value / snapSize) * snapSize;
+  }, [snapEnabled, snapSize]);
+
+  // Función para aplicar transformación con snap
+  const applyTransformSnap = useCallback(() => {
+    if (!groupRef.current) return;
+    
+    let position = groupRef.current.position;
+    const rotation = groupRef.current.rotation;
+    const scale = groupRef.current.scale;
+
+    // Aplicar snap solo en modo translate
+    if (snapEnabled && transformMode === 'translate') {
+      const snappedX = applySnap(position.x);
+      const snappedY = applySnap(position.y);
+      const snappedZ = applySnap(position.z);
+      
+      groupRef.current.position.set(snappedX, snappedY, snappedZ);
+      position = { x: snappedX, y: snappedY, z: snappedZ };
+      groupRef.current.updateMatrixWorld();
+      
+      lastPositionRef.current.set(position.x, position.y, position.z);
+    }
+
+    // Preparar datos para actualización
+    const rotationDegrees = [
+      (rotation.x * 180) / Math.PI,
+      (rotation.y * 180) / Math.PI,
+      (rotation.z * 180) / Math.PI,
+    ];
+
+    const updateData = {
+      position: [position.x, position.y, position.z],
+      rotation: rotationDegrees,
+      scale: [scale.x, scale.y, scale.z],
+    };
+
+    return updateData;
+  }, [snapEnabled, transformMode, applySnap]);
+
+  // Manejar cambios en TransformControls
+  const handleObjectChange = useCallback(() => {
+    if (!groupRef.current || !isTransforming.current) return;
+    applyTransformSnap();
+  }, [applyTransformSnap]);
+
+  // Sincronizar cuando cambia el objeto externamente
+  useFrame(() => {
+    if (!groupRef.current) return;
+    
+    // NO sincronizar durante arrastre para evitar parpadeo
+    if (isDragging.current || isTransforming.current) {
+      return;
+    }
+
+    const posChanged = 
+      Math.abs(object.position[0] - lastPositionRef.current.x) > 0.001 ||
+      Math.abs(object.position[1] - lastPositionRef.current.y) > 0.001 ||
+      Math.abs(object.position[2] - lastPositionRef.current.z) > 0.001;
+
+    if (posChanged) {
+      groupRef.current.position.set(...object.position);
+      lastPositionRef.current.set(...object.position);
+    }
+
+    const rotationInRadians = object.rotation.map(deg => (deg * Math.PI) / 180);
+    const rotChanged = 
+      Math.abs(rotationInRadians[0] - lastRotationRef.current.x) > 0.001 ||
+      Math.abs(rotationInRadians[1] - lastRotationRef.current.y) > 0.001 ||
+      Math.abs(rotationInRadians[2] - lastRotationRef.current.z) > 0.001;
+
+    if (rotChanged) {
+      groupRef.current.rotation.set(...rotationInRadians);
+      lastRotationRef.current.set(...rotationInRadians);
+    }
+
+    const scaleChanged = 
+      Math.abs(object.scale[0] - lastScaleRef.current.x) > 0.001 ||
+      Math.abs(object.scale[1] - lastScaleRef.current.y) > 0.001 ||
+      Math.abs(object.scale[2] - lastScaleRef.current.z) > 0.001;
+
+    if (scaleChanged) {
+      groupRef.current.scale.set(...object.scale);
+      lastScaleRef.current.set(...object.scale);
+    }
+
+    if (posChanged || rotChanged || scaleChanged) {
+      groupRef.current.updateMatrixWorld();
+    }
+  });
+
+  const handleDragStart = useCallback(() => {
+    isDragging.current = true;
+    isTransforming.current = true;
+    
+    if (transformingObjectIdRef) {
+      transformingObjectIdRef.current = object.id;
+    }
+    
+    if (groupRef.current) {
+      lastPositionRef.current.set(
+        groupRef.current.position.x,
+        groupRef.current.position.y,
+        groupRef.current.position.z
+      );
+    }
+    
+    if (orbitControlsRef.current) {
+      orbitControlsRef.current.enabled = false;
+    }
+  }, [orbitControlsRef, object.id, transformingObjectIdRef]);
+
+  const handleDragEnd = useCallback(() => {
+    if (groupRef.current) {
+      let position = groupRef.current.position;
+      const rotation = groupRef.current.rotation;
+      const scale = groupRef.current.scale;
+
+      // Aplicar snap final si es necesario
+      if (snapEnabled && transformMode === 'translate') {
+        const snappedX = applySnap(position.x);
+        const snappedY = applySnap(position.y);
+        const snappedZ = applySnap(position.z);
+        
+        groupRef.current.position.set(snappedX, snappedY, snappedZ);
+        position = { x: snappedX, y: snappedY, z: snappedZ };
+        groupRef.current.updateMatrixWorld();
+      }
+
+      const rotationDegrees = [
+        (rotation.x * 180) / Math.PI,
+        (rotation.y * 180) / Math.PI,
+        (rotation.z * 180) / Math.PI,
+      ];
+
+      lastPositionRef.current.set(position.x, position.y, position.z);
+      lastRotationRef.current.set(rotation.x, rotation.y, rotation.z);
+      lastScaleRef.current.set(scale.x, scale.y, scale.z);
+
+      requestAnimationFrame(() => {
+        onUpdate({
+          position: [position.x, position.y, position.z],
+          rotation: rotationDegrees,
+          scale: [scale.x, scale.y, scale.z],
+        });
+      });
+    }
+    
+    if (lastTransformEndTimeRef) {
+      lastTransformEndTimeRef.current = Date.now();
+    }
+
+    setTimeout(() => {
+      isTransforming.current = false;
+      isDragging.current = false;
+      if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
+        setTimeout(() => {
+          if (transformingObjectIdRef.current === object.id) {
+            transformingObjectIdRef.current = null;
+          }
+        }, 2500);
+      }
+    }, 500);
+
+    if (orbitControlsRef.current) {
+      orbitControlsRef.current.enabled = true;
+    }
+  }, [orbitControlsRef, onUpdate, object.id, transformingObjectIdRef, lastTransformEndTimeRef, snapEnabled, transformMode, applySnap]);
+
+  // Marcar el objeto con su ID para raycasting
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.userData.objectId = object.id;
+      groupRef.current.userData.isSelectable = true;
+      groupRef.current.traverse((child) => {
+        if (child.isMesh || child.isGroup) {
+          child.userData.objectId = object.id;
+          child.userData.isSelectable = true;
+        }
+      });
+    }
+  }, [object.id]);
+
+  const groupReadyRef = useRef(false);
+  useEffect(() => {
+    if (groupRef.current && !groupReadyRef.current) {
+      groupReadyRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSelected) {
+      if (groupRef.current) {
+        groupReadyRef.current = true;
+      } else {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const checkReady = () => {
+          if (groupRef.current) {
+            groupReadyRef.current = true;
+          } else if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(checkReady, 50);
+          }
+        };
+        setTimeout(checkReady, 0);
+      }
+    }
+  }, [isSelected]);
+
+  // Renderizar collider visual según el tipo
+  const renderColliderVisual = () => {
+    if (object.colliderType === 'cylinder') {
+      return (
+        <ColliderCylinder
+          position={[0, 0, 0]}
+          scale={object.scale || [1, 1, 1]}
+          rotation={object.rotation || [0, 0, 0]}
+          isSelected={isSelected}
+          color="#ff6b00"
+          showCapsuleShape={true}
+        />
+      );
+    } else if (object.colliderType === 'box') {
+      const scale = object.scale || [1, 1, 1];
+      return (
+        <mesh>
+          <boxGeometry args={scale} />
+          <meshBasicMaterial
+            color="#ff6b00"
+            transparent
+            opacity={isSelected ? 0.4 : 0.2}
+            wireframe={true}
+            side={THREE.DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <>
+      <group
+        ref={groupRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.delta = 0;
+          const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
+          if (timeSinceLastTransform < 3000) {
+            e.stopPropagation();
+            return;
+          }
+          if (!isSelected || (!isDragging.current && !isTransforming.current)) {
+            onSelect();
+          }
+        }}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          if (!isSelected) {
+            document.body.style.cursor = 'pointer';
+          }
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          if (!isSelected) {
+            document.body.style.cursor = 'default';
+          }
+        }}
+      >
+        {/* Visualización del collider */}
+        {renderColliderVisual()}
+
+        {/* Highlight cuando está seleccionado */}
+        {isSelected && (
+          <mesh position={[0, 0, 0]} frustumCulled={false}>
+            <boxGeometry args={[3, 3, 3]} />
+            <meshBasicMaterial
+              color="#ff6b00"
+              transparent
+              opacity={0.15}
+              wireframe
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+      </group>
+
+      {/* TransformControls */}
+      {isSelected && groupReadyRef.current && groupRef.current && (
+        <>
+          <TransformControls
+            ref={transformRef}
+            object={groupRef.current}
+            mode={transformMode}
+            onObjectChange={handleObjectChange}
+            translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
+            rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null}
+            onMouseDown={handleDragStart}
+            onMouseUp={handleDragEnd}
+            showX={true}
+            showY={true}
+            showZ={true}
+            space="world"
+            size={1.2}
+          />
+        </>
+      )}
+    </>
+  );
+}, (prevProps, nextProps) => {
+  if (prevProps.object.id !== nextProps.object.id) return false;
+  
+  const posChanged = 
+    prevProps.object.position[0] !== nextProps.object.position[0] ||
+    prevProps.object.position[1] !== nextProps.object.position[1] ||
+    prevProps.object.position[2] !== nextProps.object.position[2];
+    
+  const rotChanged = 
+    prevProps.object.rotation[0] !== nextProps.object.rotation[0] ||
+    prevProps.object.rotation[1] !== nextProps.object.rotation[1] ||
+    prevProps.object.rotation[2] !== nextProps.object.rotation[2];
+    
+  const scaleChanged = 
+    prevProps.object.scale[0] !== nextProps.object.scale[0] ||
+    prevProps.object.scale[1] !== nextProps.object.scale[1] ||
+    prevProps.object.scale[2] !== nextProps.object.scale[2];
+  
+  if (posChanged || rotChanged || scaleChanged) return false;
+  if (
+    prevProps.isSelected !== nextProps.isSelected ||
+    prevProps.transformMode !== nextProps.transformMode ||
+    prevProps.snapEnabled !== nextProps.snapEnabled ||
+    prevProps.snapSize !== nextProps.snapSize
+  ) {
+    return false;
+  }
+  
   return true;
 });
 

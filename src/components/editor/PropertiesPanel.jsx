@@ -20,6 +20,173 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
     );
   }
 
+  // Si es un collider, mostrar propiedades específicas de collider
+  if (object.type === 'collider') {
+    return (
+      <div className="properties-panel">
+        <h3>Propiedades del Collider</h3>
+        <div style={{ padding: '8px', backgroundColor: '#fff3cd', borderRadius: '4px', marginBottom: '12px' }}>
+          <p style={{ margin: 0, fontSize: '12px', color: '#856404' }}>
+            ⚠️ Este collider es invisible en el modo juego pero tiene colisión física
+          </p>
+        </div>
+
+        <div className="property-group">
+          <label>Tipo de Collider</label>
+          <select
+            value={object.colliderType || 'cylinder'}
+            onChange={(e) => onUpdate({ colliderType: e.target.value })}
+            style={{ width: '100%', padding: '8px' }}
+          >
+            <option value="cylinder">Cilíndrico</option>
+            <option value="box">Caja</option>
+          </select>
+        </div>
+
+        <div className="property-group">
+          <label>Posición</label>
+          <div className="vector-input">
+            <input
+              type="number"
+              step="0.1"
+              value={object.position[0]}
+              onChange={(e) => {
+                const newPos = [...object.position];
+                newPos[0] = parseFloat(e.target.value) || 0;
+                onUpdate({ position: newPos });
+              }}
+              placeholder="X"
+            />
+            <input
+              type="number"
+              step="0.1"
+              value={object.position[1]}
+              onChange={(e) => {
+                const newPos = [...object.position];
+                newPos[1] = parseFloat(e.target.value) || 0;
+                onUpdate({ position: newPos });
+              }}
+              placeholder="Y"
+            />
+            <input
+              type="number"
+              step="0.1"
+              value={object.position[2]}
+              onChange={(e) => {
+                const newPos = [...object.position];
+                newPos[2] = parseFloat(e.target.value) || 0;
+                onUpdate({ position: newPos });
+              }}
+              placeholder="Z"
+            />
+          </div>
+        </div>
+
+        <div className="property-group">
+          <label>
+            {object.colliderType === 'cylinder' ? 'Escala (Radio X/Z, Altura Y)' : 'Dimensiones (X, Y, Z)'}
+          </label>
+          <div className="vector-input">
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.scale[0]}
+              onChange={(e) => {
+                const newScale = [...object.scale];
+                newScale[0] = parseFloat(e.target.value) || 1;
+                onUpdate({ scale: newScale });
+              }}
+              placeholder={object.colliderType === 'cylinder' ? 'Radio X' : 'X'}
+            />
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.scale[1]}
+              onChange={(e) => {
+                const newScale = [...object.scale];
+                newScale[1] = parseFloat(e.target.value) || 1;
+                onUpdate({ scale: newScale });
+              }}
+              placeholder={object.colliderType === 'cylinder' ? 'Altura Y' : 'Y'}
+            />
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              value={object.scale[2]}
+              onChange={(e) => {
+                const newScale = [...object.scale];
+                newScale[2] = parseFloat(e.target.value) || 1;
+                onUpdate({ scale: newScale });
+              }}
+              placeholder={object.colliderType === 'cylinder' ? 'Radio Z' : 'Z'}
+            />
+          </div>
+          <p className="property-hint">
+            {object.colliderType === 'cylinder' 
+              ? 'Radio en X/Z, altura en Y' 
+              : 'Dimensiones del collider de caja'}
+          </p>
+        </div>
+
+        <div className="property-group">
+          <label>Rotación (grados)</label>
+          <div className="vector-input">
+            <input
+              type="number"
+              step="1"
+              value={object.rotation[0]}
+              onChange={(e) => {
+                const newRot = [...object.rotation];
+                newRot[0] = parseFloat(e.target.value) || 0;
+                onUpdate({ rotation: newRot });
+              }}
+              placeholder="X"
+            />
+            <input
+              type="number"
+              step="1"
+              value={object.rotation[1]}
+              onChange={(e) => {
+                const newRot = [...object.rotation];
+                newRot[1] = parseFloat(e.target.value) || 0;
+                onUpdate({ rotation: newRot });
+              }}
+              placeholder="Y"
+            />
+            <input
+              type="number"
+              step="1"
+              value={object.rotation[2]}
+              onChange={(e) => {
+                const newRot = [...object.rotation];
+                newRot[2] = parseFloat(e.target.value) || 0;
+                onUpdate({ rotation: newRot });
+              }}
+              placeholder="Z"
+            />
+          </div>
+        </div>
+
+        <div className="property-actions">
+          <button className="duplicate-button" onClick={onDuplicate}>
+            📋 Duplicar Collider
+          </button>
+          <button className="delete-button" onClick={onDelete}>
+            🗑️ Eliminar Collider
+          </button>
+          {onToggleControls && (
+            <button className="controls-button" onClick={onToggleControls}>
+              Controles
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const handleChange = (property, value, index = null) => {
     if (index !== null) {
       // Para arrays (position, scale, rotation)
@@ -157,13 +324,27 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
           <input
             type="checkbox"
             checked={object.hasCollider}
-            onChange={(e) => handleChange('hasCollider', e.target.checked)}
+            onChange={(e) => {
+              const newValue = e.target.checked;
+              handleChange('hasCollider', newValue);
+              // Si se desactiva hasCollider y hay un customCollider, eliminarlo
+              if (!newValue && object.customCollider) {
+                onUpdate({ customCollider: null });
+              }
+            }}
+            disabled={!!object.customCollider} // Deshabilitar si hay customCollider
           />
           Tiene colisión
+          {object.customCollider && (
+            <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+              (Activado por collider personalizado)
+            </span>
+          )}
         </label>
       </div>
 
-      {object.hasCollider && (
+      {/* Solo mostrar escala del collider si NO hay customCollider */}
+      {object.hasCollider && !object.customCollider && (
         <div className="property-group">
           <label>Escala del Collider</label>
           <div className="vector-input">
@@ -213,9 +394,10 @@ export const PropertiesPanel = ({ object, onUpdate, onDelete, onDuplicate, onTog
               placeholder="Z"
             />
           </div>
-          <p className="property-hint">Multiplicador del tamaño base del collider</p>
+          <p className="property-hint">Multiplicador del tamaño base del collider (solo para collider automático)</p>
         </div>
       )}
+
 
       <div className="property-actions">
         <button className="duplicate-button" onClick={onDuplicate}>

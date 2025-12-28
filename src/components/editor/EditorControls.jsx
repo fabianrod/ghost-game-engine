@@ -91,9 +91,6 @@ export const EditorControls = ({
         case 's':
           onModeChange('scale');
           break;
-        case 'c':
-          onModeChange('collider');
-          break;
         case 'delete':
         case 'backspace':
           if (onDelete) {
@@ -173,14 +170,6 @@ export const EditorControls = ({
             >
               <span className="btn-key">S</span>
               <span className="btn-label">Escalar</span>
-            </button>
-            <button
-              className={`transform-btn ${transformMode === 'collider' ? 'active' : ''}`}
-              onClick={() => onModeChange('collider')}
-              title="Collider (C)"
-            >
-              <span className="btn-key">C</span>
-              <span className="btn-label">Collider</span>
             </button>
           </div>
         </div>
