@@ -110,8 +110,8 @@ export const SceneObject = ({
     />
   );
 
-  // Si tiene PlayerController, el RigidBody debe ser dinámico
-  const rigidBodyType = hasPlayerController ? 'dynamic' : 'fixed';
+  // Si tiene PlayerController, usar kinematicPositionBased para control total del movimiento
+  const rigidBodyType = hasPlayerController ? 'kinematicPositionBased' : 'fixed';
 
   // Configurar userData para identificación (para cámaras que siguen objetos)
   useEffect(() => {
@@ -143,14 +143,17 @@ export const SceneObject = ({
     }
   }, [objectId, hasCollider]);
 
-  // Establecer posición inmediatamente cuando el RigidBody esté montado (para evitar flotación inicial)
+  // Establecer posición inicial SOLO una vez cuando el RigidBody se monta
+  // NO ejecutar cuando adjustedPosition cambia, dejar que PlayerController maneje el movimiento
   useEffect(() => {
     if (hasPlayerController && rigidBodyRef.current) {
-      // Establecer posición y velocidad inmediatamente para evitar que la gravedad lo mueva
+      // Establecer posición inicial SOLO al montar, no en cada cambio de posición
+      // El PlayerController se encargará del movimiento continuo
       const timer = setTimeout(() => {
         if (rigidBodyRef.current) {
           const pos = new THREE.Vector3(...adjustedPosition);
           rigidBodyRef.current.setTranslation(pos);
+          // Con kinematicPositionBased, setLinvel no es necesario pero lo dejamos por compatibilidad
           rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 });
           rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 });
           rigidBodyRef.current.setRotation({ x: 0, y: 0, z: 0, w: 1 });
@@ -159,21 +162,38 @@ export const SceneObject = ({
       
       return () => clearTimeout(timer);
     }
-  }, [hasPlayerController, adjustedPosition]);
+    // IMPORTANTE: Solo ejecutar cuando hasPlayerController cambia, NO cuando adjustedPosition cambia
+    // Esto evita que este efecto interfiera con el movimiento del PlayerController
+  }, [hasPlayerController]); // Removido adjustedPosition de las dependencias
 
-  // Si tiene colisión, envolver en RigidBody
+  // Si tiene PlayerController, NO usar RigidBody - solo movimiento directo del objeto 3D
+  // Esto elimina todos los problemas de física y flotación
+  if (hasPlayerController) {
+    return (
+      <group ref={objectGroupRef} position={adjustedPosition} rotation={[0, 0, 0]}>
+        {objectContent}
+        <PlayerController
+          objectRef={objectGroupRef}
+          initialPosition={adjustedPosition}
+          speed={playerControllerProps.speed || 5}
+          enabled={playerControllerProps.enabled !== false}
+          usePhysics={false} // Sin física, solo movimiento directo
+        />
+      </group>
+    );
+  }
+
+  // Si tiene colisión pero NO tiene PlayerController, usar RigidBody normal
   if (hasCollider) {
     return (
       <RigidBody 
         ref={rigidBodyRef}
         type={rigidBodyType} 
         position={adjustedPosition}
-        rotation={hasPlayerController ? [0, 0, 0] : rotationInRadians} // Rotación inicial en 0 para PlayerController
-        lockRotations={hasPlayerController ? [true, false, true] : false} // Bloquear rotación X y Z si tiene PlayerController
-        gravityScale={hasPlayerController ? 0 : 1} // Desactivar gravedad inicialmente para PlayerController (se activará después)
-        linearDamping={hasPlayerController ? 0 : undefined} // Sin damping lineal para PlayerController (movimiento más responsivo)
-        angularDamping={hasPlayerController ? 0 : undefined} // Sin damping angular para PlayerController
-        canSleep={false} // Evitar que el cuerpo se duerma (importante para PlayerController)
+        rotation={rotationInRadians}
+        lockRotations={false}
+        gravityScale={1}
+        canSleep={false}
       >
         <group ref={objectGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
           {objectContent}
@@ -183,37 +203,7 @@ export const SceneObject = ({
           args={[colliderSize.x / 2, colliderSize.y / 2, colliderSize.z / 2]}
           position={[center.x * scale[0], center.y * scale[1], center.z * scale[2]]}
         />
-        
-        {/* PlayerController si está activo - debe estar dentro del RigidBody */}
-        {hasPlayerController && (
-          <PlayerController
-            objectRef={objectGroupRef}
-            initialPosition={adjustedPosition} // Usar posición absoluta ajustada
-            speed={playerControllerProps.speed || 5}
-            enabled={playerControllerProps.enabled !== false}
-            usePhysics={true}
-            rigidBodyRef={rigidBodyRef}
-            boundingBox={boundingBox}
-            scale={scale}
-          />
-        )}
       </RigidBody>
-    );
-  }
-
-  // Si no tiene colisión pero tiene PlayerController, usar movimiento directo
-  if (hasPlayerController) {
-    return (
-      <group ref={objectGroupRef} position={adjustedPosition} rotation={rotationInRadians}>
-        {objectContent}
-        <PlayerController
-          objectRef={objectGroupRef}
-          initialPosition={adjustedPosition}
-          speed={playerControllerProps.speed || 5}
-          enabled={playerControllerProps.enabled !== false}
-          usePhysics={false}
-        />
-      </group>
     );
   }
 

@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useKeyboardControls } from '@react-three/drei';
 import { usePlayerControls } from '../../hooks/usePlayerControls';
+import { PHYSICS_CONFIG } from '../../constants/gameConstants';
 import * as THREE from 'three';
 
 /**
@@ -37,7 +38,7 @@ export const PlayerController = ({
   
   const currentPosition = useRef(new THREE.Vector3(...initialPosition));
   const currentRotation = useRef(new THREE.Euler(0, 0, 0));
-  const velocity = useRef(new THREE.Vector3());
+  const velocity = useRef(new THREE.Vector3(0, 0, 0)); // Inicializar velocidad Y a 0
   const isGrounded = useRef(false);
   const initialized = useRef(false);
   
@@ -58,6 +59,32 @@ export const PlayerController = ({
         if (rigidBodyRef.current) {
           const initialPos = new THREE.Vector3(...initialPosition);
           
+          // LOG: Estado inicial ANTES de cualquier modificación
+          const rbBefore = rigidBodyRef.current;
+          const posBefore = rbBefore.translation();
+          const velBefore = rbBefore.linvel();
+          const gravityScaleBefore = rbBefore.gravityScale ? rbBefore.gravityScale() : 'N/A';
+          const bodyType = rbBefore.bodyType ? rbBefore.bodyType() : 'N/A';
+          
+          console.log('[PlayerController] 🎮 INICIALIZACIÓN - Estado ANTES de modificar:', {
+            timestamp: new Date().toISOString(),
+            initialPosition: initialPosition,
+            posicionRigidBodyAntes: { x: posBefore.x, y: posBefore.y, z: posBefore.z },
+            velocidadAntes: { x: velBefore.x, y: velBefore.y, z: velBefore.z },
+            gravityScaleAntes: gravityScaleBefore,
+            bodyType: bodyType,
+            enabled: enabled,
+            usePhysics: usePhysics
+          });
+          
+          // Guardar estado inicial para comparación
+          initialRigidBodyState.current = {
+            position: { x: posBefore.x, y: posBefore.y, z: posBefore.z },
+            velocity: { x: velBefore.x, y: velBefore.y, z: velBefore.z },
+            gravityScale: gravityScaleBefore,
+            bodyType: bodyType
+          };
+          
           // Asegurar que el RigidBody esté en la posición inicial correcta
           rigidBodyRef.current.setTranslation(initialPos);
           rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 });
@@ -66,14 +93,43 @@ export const PlayerController = ({
           // Asegurar que la rotación inicial sea [0, 0, 0] (sin voltearse)
           rigidBodyRef.current.setRotation({ x: 0, y: 0, z: 0, w: 1 });
           
-          // Activar gravedad después de establecer la posición
-          if (rigidBodyRef.current.setGravityScale) {
-            rigidBodyRef.current.setGravityScale(1);
-          }
+          // NOTA: Con kinematicPositionBased, la gravedad se aplica manualmente
+          // No necesitamos activar setGravityScale ya que kinematicPositionBased no responde a gravedad del motor
+          gravityActivated.current = true;
+          
+          // LOG: Confirmación de inicialización (gravedad manual)
+          const posAfter = rigidBodyRef.current.translation();
+          const gravityScaleAfter = rigidBodyRef.current.gravityScale ? rigidBodyRef.current.gravityScale() : 'N/A';
+          
+          console.log('[PlayerController] ⚠️ INICIALIZACIÓN CON GRAVEDAD MANUAL:', {
+            timestamp: new Date().toISOString(),
+            posicionDespues: { x: posAfter.x, y: posAfter.y, z: posAfter.z },
+            gravityScale: gravityScaleAfter,
+            tipoGravedad: 'MANUAL (kinematicPositionBased)',
+            cambioPosicionY: posAfter.y - posBefore.y
+          });
           
           currentPosition.current.copy(initialPos);
           currentRotation.current.set(0, 0, 0); // Rotación inicial en 0
           initialized.current = true;
+          
+          // LOG: Estado final después de inicialización
+          const posFinal = rigidBodyRef.current.translation();
+          const velFinal = rigidBodyRef.current.linvel();
+          
+          // Inicializar lastPosition y lastVelocityY para cálculos de deltaY
+          lastPosition.current.copy(posFinal);
+          // Inicializar velocidad Y interna a 0 (no usar velFinal.y porque kinematicPositionBased no es confiable)
+          velocity.current.y = 0;
+          lastVelocityY.current = 0;
+          
+          console.log('[PlayerController] ✅ INICIALIZACIÓN COMPLETA:', {
+            timestamp: new Date().toISOString(),
+            posicionFinal: { x: posFinal.x, y: posFinal.y, z: posFinal.z },
+            velocidadFinal: { x: velFinal.x, y: velFinal.y, z: velFinal.z },
+            initialized: initialized.current,
+            lastPositionInicializada: { x: lastPosition.current.x, y: lastPosition.current.y, z: lastPosition.current.z }
+          });
         }
       }, 0); // Ejecutar inmediatamente en el siguiente tick
       
@@ -83,19 +139,42 @@ export const PlayerController = ({
       currentRotation.current.set(0, 0, 0); // Rotación inicial en 0
       initialized.current = true;
     }
-  }, [initialPosition, usePhysics, rigidBodyRef]);
+  }, [initialPosition, usePhysics, rigidBodyRef, enabled]);
 
-  // Detectar si está en el suelo usando raycasting (simplificado por ahora)
+  // Detectar si está en el suelo usando raycasting
   const checkGrounded = () => {
     if (!usePhysics || !rigidBodyRef?.current) {
       isGrounded.current = false;
       return false;
     }
     
-    // Por ahora, simplemente verificar si la velocidad Y es cercana a 0
-    // Esto indica que está en el suelo o cayendo lentamente
     const currentVel = rigidBodyRef.current.linvel();
-    isGrounded.current = Math.abs(currentVel.y) < 0.1;
+    const rbPosition = rigidBodyRef.current.translation();
+    
+    // Lanzar un rayo hacia abajo desde la posición actual para detectar suelo
+    const raycaster = new THREE.Raycaster();
+    const rayOrigin = new THREE.Vector3(rbPosition.x, rbPosition.y, rbPosition.z);
+    const rayDirection = new THREE.Vector3(0, -1, 0);
+    raycaster.set(rayOrigin, rayDirection);
+    
+    // Distancia máxima para considerar que está en el suelo (ajustar según el tamaño del objeto)
+    const groundCheckDistance = objectHeight.current > 0 ? objectHeight.current * 1.5 : 0.5;
+    
+    // Buscar intersecciones con objetos de la escena (excluyendo el propio objeto)
+    const intersects = raycaster.intersectObjects(scene.children, true);
+    const validHits = intersects.filter(intersect => {
+      return !intersect.object.userData?.isPlayer && intersect.distance < groundCheckDistance;
+    });
+    
+    // Si hay un hit válido y la velocidad Y es cercana a 0 o negativa, está en el suelo
+    if (validHits.length > 0) {
+      const closestHit = validHits[0];
+      // Está en el suelo si la distancia es pequeña y la velocidad Y es <= 0.1
+      isGrounded.current = closestHit.distance < groundCheckDistance && currentVel.y <= 0.1;
+    } else {
+      // Si no hay hit, verificar solo por velocidad (fallback)
+      isGrounded.current = Math.abs(currentVel.y) < 0.1 && currentVel.y <= 0;
+    }
     
     return isGrounded.current;
   };
@@ -103,6 +182,43 @@ export const PlayerController = ({
   // Debug: contador de frames para logs periódicos
   const debugFrameCount = useRef(0);
   const lastPosition = useRef(new THREE.Vector3());
+  const lastVelocityY = useRef(0);
+  const debugLogInterval = useRef(0);
+  const gravityActivated = useRef(false);
+  const initialRigidBodyState = useRef(null);
+  const lastEnabledState = useRef(enabled);
+
+  // Log cuando cambia el estado enabled (modo juego activado/desactivado)
+  useEffect(() => {
+    if (lastEnabledState.current !== enabled) {
+      console.log('[PlayerController] 🔄 CAMBIO DE ESTADO:', {
+        timestamp: new Date().toISOString(),
+        enabled: enabled,
+        anterior: lastEnabledState.current,
+        nuevo: enabled,
+        modo: enabled ? 'MODO JUEGO ACTIVADO' : 'MODO JUEGO DESACTIVADO',
+        usePhysics: usePhysics,
+        initialized: initialized.current
+      });
+      
+      if (enabled && usePhysics && rigidBodyRef?.current) {
+        const pos = rigidBodyRef.current.translation();
+        const vel = rigidBodyRef.current.linvel();
+        const gravityScale = rigidBodyRef.current.gravityScale ? rigidBodyRef.current.gravityScale() : 'N/A';
+        const bodyType = rigidBodyRef.current.bodyType ? rigidBodyRef.current.bodyType() : 'N/A';
+        
+        console.log('[PlayerController] 📍 Estado del RigidBody al activar modo juego:', {
+          timestamp: new Date().toISOString(),
+          posicion: { x: pos.x.toFixed(3), y: pos.y.toFixed(3), z: pos.z.toFixed(3) },
+          velocidad: { x: vel.x.toFixed(3), y: vel.y.toFixed(3), z: vel.z.toFixed(3) },
+          gravityScale: gravityScale,
+          bodyType: bodyType
+        });
+      }
+      
+      lastEnabledState.current = enabled;
+    }
+  }, [enabled, usePhysics, rigidBodyRef]);
 
   // Manejar movimiento cada frame
   useFrame((state, delta) => {
@@ -149,57 +265,247 @@ export const PlayerController = ({
     frontVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotation.current.y);
     sideVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentRotation.current.y);
     
-    // Calcular velocidad de movimiento
-    velocity.current.set(0, 0, 0);
+    // Calcular velocidad de movimiento horizontal (NO resetear velocidad Y)
+    const horizontalVelocity = new THREE.Vector3(0, 0, 0);
     
-    if (forward) velocity.current.add(frontVector);
-    if (backward) velocity.current.sub(frontVector);
-    if (left) velocity.current.sub(sideVector);
-    if (right) velocity.current.add(sideVector);
+    if (forward) horizontalVelocity.add(frontVector);
+    if (backward) horizontalVelocity.sub(frontVector);
+    if (left) horizontalVelocity.sub(sideVector);
+    if (right) horizontalVelocity.add(sideVector);
     
-    // Normalizar y calcular dirección de movimiento
+    // Normalizar y calcular dirección de movimiento horizontal
     let moveDirection = new THREE.Vector3();
-    if (velocity.current.length() > 0) {
-      moveDirection = velocity.current.clone().normalize();
+    if (horizontalVelocity.length() > 0) {
+      moveDirection = horizontalVelocity.clone().normalize();
     }
     
     // Aplicar movimiento según el modo
     if (usePhysics && rigidBodyRef && rigidBodyRef.current) {
-      // Usar física: aplicar velocidad al RigidBody (Character Controller style)
-      const currentVel = rigidBodyRef.current.linvel();
+      // Con kinematicPositionBased, NO leer velocidad del RigidBody (no es confiable)
+      // Usar solo nuestra velocidad interna
+      const rbPosition = rigidBodyRef.current.translation();
       
-      // Calcular velocidad horizontal (X y Z) basada en la dirección de movimiento
-      // setLinvel espera velocidad en unidades/segundo, no distancia
-      const horizontalVelocity = new THREE.Vector3(
-        moveDirection.x * speed,
+      // LOG: Detectar cambios significativos en posición Y (flotación)
+      const deltaY = rbPosition.y - lastPosition.current.y;
+      const deltaVelY = velocity.current.y - lastVelocityY.current;
+      
+      // Log cada 60 frames (aproximadamente 1 vez por segundo a 60fps) o cuando hay cambios significativos
+      debugLogInterval.current++;
+      const shouldLog = debugLogInterval.current % 60 === 0 || Math.abs(deltaY) > 0.01 || Math.abs(deltaVelY) > 0.1;
+      
+      if (shouldLog && enabled) {
+        const gravityScale = rigidBodyRef.current.gravityScale ? rigidBodyRef.current.gravityScale() : 'N/A';
+        const bodyType = rigidBodyRef.current.bodyType ? rigidBodyRef.current.bodyType() : 'N/A';
+        const isGroundedValue = isGrounded.current;
+        
+        console.log('[PlayerController] 📊 ESTADO FÍSICO (Frame ' + debugFrameCount.current + '):', {
+          timestamp: new Date().toISOString(),
+          frame: debugFrameCount.current,
+          posicion: { x: rbPosition.x.toFixed(3), y: rbPosition.y.toFixed(3), z: rbPosition.z.toFixed(3) },
+          velocidadInterna: { x: horizontalVelocity.x.toFixed(3), y: velocity.current.y.toFixed(3), z: horizontalVelocity.z.toFixed(3) },
+          deltaY: deltaY.toFixed(4),
+          deltaVelY: deltaVelY.toFixed(4),
+          gravityScale: gravityScale,
+          bodyType: bodyType,
+          isGrounded: isGroundedValue,
+          enabled: enabled,
+          cambioDesdeInicial: {
+            y: (rbPosition.y - (initialRigidBodyState.current?.position?.y || 0)).toFixed(3)
+          }
+        });
+        
+        // Alerta si detectamos movimiento hacia arriba no deseado
+        // Usar nuestra velocidad interna, no la del RigidBody
+        if (deltaY > 0.01 && velocity.current.y > 0.1 && !jump) {
+          console.warn('[PlayerController] ⚠️⚠️⚠️ FLOTACIÓN DETECTADA:', {
+            timestamp: new Date().toISOString(),
+            motivo: 'Objeto subiendo sin input de salto',
+            deltaY: deltaY.toFixed(4),
+            velocidadYInterna: velocity.current.y.toFixed(3),
+            posicionY: rbPosition.y.toFixed(3),
+            gravityScale: gravityScale,
+            bodyType: bodyType,
+            isGrounded: isGroundedValue,
+            movimientoVerticalCalculado: (velocity.current.y * delta).toFixed(4)
+          });
+        }
+      }
+      
+      // Con kinematicPositionBased, debemos usar setTranslation en lugar de setLinvel
+      // Calcular movimiento horizontal basado en la dirección y velocidad
+      const horizontalMovement = new THREE.Vector3(
+        moveDirection.x * speed * delta,
         0,
-        moveDirection.z * speed
+        moveDirection.z * speed * delta
       );
       
-      // IMPORTANTE: Aplicar velocidad CADA FRAME, incluso si no hay input
-      // Esto asegura que el RigidBody mantenga la velocidad deseada y no sea afectado por fricción
-      // Si no hay input, establecer velocidad en 0 para detener el movimiento
-      rigidBodyRef.current.setLinvel({
-        x: horizontalVelocity.x,
-        y: currentVel.y, // Mantener velocidad Y (gravedad/salto)
-        z: horizontalVelocity.z,
-      });
+      // GRAVEDAD MANUAL: Aplicar gravedad solo cuando no está en el suelo
+      // Con kinematicPositionBased, debemos aplicar gravedad manualmente usando setTranslation
+      let verticalMovement = 0;
       
+      // Actualizar velocidad Y interna para tracking
+      if (isGrounded.current) {
+        // Si está en el suelo y no está saltando, mantener velocidad Y en 0
+        if (!jump && velocity.current.y <= 0) {
+          velocity.current.y = 0;
+        }
+      } else {
+        // Si no está en el suelo, aplicar gravedad manualmente
+        velocity.current.y -= PHYSICS_CONFIG.GRAVITY_STRENGTH * delta;
+      }
+      
+      // Manejar salto: aplicar fuerza de salto cuando se presiona la tecla y está en el suelo
+      if (jump && isGrounded.current && velocity.current.y <= 0) {
+        // Fuerza de salto (ajustar según necesidad, típicamente 5-8 unidades/segundo)
+        velocity.current.y = 5; // Valor de salto razonable
+      }
+      
+      // Limitar velocidad Y hacia abajo para evitar caídas infinitamente rápidas
+      const MAX_FALL_VELOCITY = -20; // Velocidad máxima de caída
+      velocity.current.y = Math.max(MAX_FALL_VELOCITY, velocity.current.y);
+      
+      // Calcular movimiento vertical basado en la velocidad Y
+      verticalMovement = velocity.current.y * delta;
+      
+      // Calcular nueva posición
+      const newPosition = new THREE.Vector3(
+        rbPosition.x + horizontalMovement.x,
+        rbPosition.y + verticalMovement,
+        rbPosition.z + horizontalMovement.z
+      );
+      
+      // LOG: Antes de aplicar setTranslation (solo cuando hay cambios significativos)
+      if (shouldLog && enabled) {
+        console.log('[PlayerController] 🔧 ANTES de setTranslation:', {
+          timestamp: new Date().toISOString(),
+          posicionActual: { x: rbPosition.x.toFixed(3), y: rbPosition.y.toFixed(3), z: rbPosition.z.toFixed(3) },
+          movimientoHorizontal: { x: horizontalMovement.x.toFixed(4), z: horizontalMovement.z.toFixed(4) },
+          movimientoVertical: verticalMovement.toFixed(4),
+          velocidadY: velocity.current.y.toFixed(3),
+          nuevaPosicion: { x: newPosition.x.toFixed(3), y: newPosition.y.toFixed(3), z: newPosition.z.toFixed(3) },
+          isGrounded: isGrounded.current,
+          jump: jump,
+          delta: delta.toFixed(4),
+          gravedadAplicada: (!isGrounded.current ? (PHYSICS_CONFIG.GRAVITY_STRENGTH * delta).toFixed(4) : '0 (en suelo)')
+        });
+      }
+      
+      // IMPORTANTE: Con kinematicPositionBased, usar setTranslation para mover el objeto
+      // Esto nos da control total sobre la posición
+      rigidBodyRef.current.setTranslation(newPosition);
+      
+      // LOG: Después de aplicar setTranslation (solo cuando hay cambios significativos)
+      if (shouldLog && enabled) {
+        const posAfter = rigidBodyRef.current.translation();
+        console.log('[PlayerController] ✅ DESPUÉS de setTranslation:', {
+          timestamp: new Date().toISOString(),
+          posicionAplicada: { x: posAfter.x.toFixed(3), y: posAfter.y.toFixed(3), z: posAfter.z.toFixed(3) },
+          cambioPosicionY: (posAfter.y - rbPosition.y).toFixed(4),
+          movimientoVerticalCalculado: verticalMovement.toFixed(4)
+        });
+      }
       
       // Actualizar posición actual desde el RigidBody para mantener sincronización
-      const rbPosition = rigidBodyRef.current.translation();
-      currentPosition.current.set(rbPosition.x, rbPosition.y, rbPosition.z);
+      // Leer la posición REAL después de setTranslation para asegurar que se aplicó correctamente
+      const actualPosition = rigidBodyRef.current.translation();
+      currentPosition.current.copy(actualPosition);
+      
+      // Actualizar referencias para el próximo frame
+      // Usar la posición REAL del RigidBody, no la calculada (por si hay algún ajuste)
+      lastPosition.current.copy(actualPosition);
+      lastVelocityY.current = velocity.current.y;
+      
+      // LOG: Verificar si hay discrepancia entre posición calculada y real
+      if (shouldLog && enabled) {
+        const positionDiff = actualPosition.y - newPosition.y;
+        if (Math.abs(positionDiff) > 0.001) {
+          console.warn('[PlayerController] ⚠️ DISCREPANCIA DE POSICIÓN:', {
+            timestamp: new Date().toISOString(),
+            posicionCalculada: newPosition.y.toFixed(4),
+            posicionReal: actualPosition.y.toFixed(4),
+            diferencia: positionDiff.toFixed(4),
+            motivo: 'Posición real diferente a la calculada - posible interferencia externa'
+          });
+        }
+      }
       
       // Aplicar rotación al objeto (solo Y) - rotar el grupo interno
       if (objectRef.current) {
         objectRef.current.rotation.y = currentRotation.current.y;
       }
     } else {
-      // Movimiento directo: actualizar posición del objeto
-      // Multiplicar velocidad por delta para movimiento suave
-      const moveDelta = velocity.current.clone().normalize().multiplyScalar(speed * delta);
-      currentPosition.current.add(moveDelta);
+      // Movimiento directo: actualizar posición del objeto sin física
+      // Calcular dirección de movimiento horizontal
+      const horizontalVelocity = new THREE.Vector3(0, 0, 0);
       
+      if (forward) horizontalVelocity.add(frontVector);
+      if (backward) horizontalVelocity.sub(frontVector);
+      if (left) horizontalVelocity.sub(sideVector);
+      if (right) horizontalVelocity.add(sideVector);
+      
+      // Normalizar y calcular movimiento horizontal
+      let moveDirection = new THREE.Vector3();
+      if (horizontalVelocity.length() > 0) {
+        moveDirection = horizontalVelocity.clone().normalize();
+      }
+      
+      // Calcular movimiento horizontal
+      const horizontalMovement = moveDirection.multiplyScalar(speed * delta);
+      
+      // Aplicar gravedad manualmente también en modo sin física
+      if (isGrounded.current) {
+        // Si está en el suelo y no está saltando, mantener velocidad Y en 0
+        if (!jump && velocity.current.y <= 0) {
+          velocity.current.y = 0;
+        }
+      } else {
+        // Si no está en el suelo, aplicar gravedad manualmente
+        velocity.current.y -= PHYSICS_CONFIG.GRAVITY_STRENGTH * delta;
+      }
+      
+      // Manejar salto
+      if (jump && isGrounded.current && velocity.current.y <= 0) {
+        velocity.current.y = 5; // Fuerza de salto
+      }
+      
+      // Limitar velocidad Y hacia abajo
+      const MAX_FALL_VELOCITY = -20;
+      velocity.current.y = Math.max(MAX_FALL_VELOCITY, velocity.current.y);
+      
+      // Calcular movimiento vertical
+      const verticalMovement = velocity.current.y * delta;
+      
+      // Actualizar posición
+      currentPosition.current.x += horizontalMovement.x;
+      currentPosition.current.y += verticalMovement;
+      currentPosition.current.z += horizontalMovement.z;
+      
+      // Detectar suelo con raycasting simple (para modo sin física)
+      if (objectRef.current) {
+        const raycaster = new THREE.Raycaster();
+        const rayOrigin = new THREE.Vector3(
+          currentPosition.current.x,
+          currentPosition.current.y + 0.1,
+          currentPosition.current.z
+        );
+        const rayDirection = new THREE.Vector3(0, -1, 0);
+        raycaster.set(rayOrigin, rayDirection);
+        
+        const groundCheckDistance = objectHeight.current > 0 ? objectHeight.current * 1.5 : 0.5;
+        const intersects = raycaster.intersectObjects(scene.children, true);
+        const validHits = intersects.filter(intersect => {
+          return !intersect.object.userData?.isPlayer && intersect.distance < groundCheckDistance;
+        });
+        
+        if (validHits.length > 0) {
+          const closestHit = validHits[0];
+          isGrounded.current = closestHit.distance < groundCheckDistance && velocity.current.y <= 0.1;
+        } else {
+          isGrounded.current = Math.abs(velocity.current.y) < 0.1 && velocity.current.y <= 0;
+        }
+      }
+      
+      // Aplicar posición al objeto
       if (objectRef.current) {
         objectRef.current.position.copy(currentPosition.current);
         

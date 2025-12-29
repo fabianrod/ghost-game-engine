@@ -145,11 +145,11 @@ export const ColliderObject = ({
     };
   }, [physicsMaterial]);
 
-  // Tipo de RigidBody: si tiene PlayerController, debe ser dinámico
+  // Tipo de RigidBody: si tiene PlayerController, usar kinematicPositionBased para control total
   // Si es trigger o sensor, usar 'kinematicPositionBased'
   const rigidBodyType = useMemo(() => {
     if (hasPlayerController) {
-      return 'dynamic'; // PlayerController requiere RigidBody dinámico
+      return 'kinematicPositionBased'; // PlayerController requiere control total del movimiento
     }
     if (isTrigger || isSensor) {
       return 'kinematicPositionBased'; // No afecta físicamente pero detecta colisiones
@@ -256,6 +256,29 @@ export const ColliderObject = ({
       isValidNumber(r) ? r : 0
     );
 
+    // Si tiene PlayerController, NO usar RigidBody - solo movimiento directo
+    if (hasPlayerController) {
+      return (
+        <group ref={colliderGroupRef} position={validPosition} rotation={[0, 0, 0]}>
+          {visibleInGame && (
+            <ColliderVisual
+              colliderType="cylinder"
+              position={[0, 0, 0]}
+              scale={validScale}
+              rotation={rotation}
+            />
+          )}
+          <PlayerController
+            objectRef={colliderGroupRef}
+            initialPosition={validPosition}
+            speed={playerControllerProps.speed || 5}
+            enabled={playerControllerProps.enabled !== false}
+            usePhysics={false} // Sin física, solo movimiento directo
+          />
+        </group>
+      );
+    }
+
     // Si el collider tiene rotación significativa en X o Z, necesitamos un RigidBody separado
     const needsSeparateRigidBody = Math.abs(colliderRotation[0] || 0) > 0.01 || Math.abs(colliderRotation[2] || 0) > 0.01;
 
@@ -265,10 +288,8 @@ export const ColliderObject = ({
         type={rigidBodyType}
         position={validPosition}
         rotation={needsSeparateRigidBody ? validCombinedRotation : rotationInRadians}
-        lockRotations={hasPlayerController ? [true, false, true] : false}
-        gravityScale={hasPlayerController ? 0 : 1} // Desactivar gravedad inicialmente para PlayerController
-        linearDamping={hasPlayerController ? 0 : undefined}
-        angularDamping={hasPlayerController ? 0 : undefined}
+        lockRotations={false}
+        gravityScale={1}
         canSleep={false}
       >
         <group ref={colliderGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
@@ -287,18 +308,6 @@ export const ColliderObject = ({
             />
           )}
         </group>
-        {hasPlayerController && (
-          <PlayerController
-            objectRef={colliderGroupRef}
-            initialPosition={validPosition}
-            speed={playerControllerProps.speed || 5}
-            enabled={playerControllerProps.enabled !== false}
-            usePhysics={true}
-            rigidBodyRef={rigidBodyRef}
-            boundingBox={boundingBox}
-            scale={validScale}
-          />
-        )}
       </RigidBody>
     );
   }
@@ -356,10 +365,7 @@ export const ColliderObject = ({
             initialPosition={validPosition}
             speed={playerControllerProps.speed || 5}
             enabled={playerControllerProps.enabled !== false}
-            usePhysics={true}
-            rigidBodyRef={rigidBodyRef}
-            boundingBox={boundingBox}
-            scale={validScale}
+            usePhysics={false} // Sin física, solo movimiento directo
           />
         )}
       </RigidBody>
@@ -368,6 +374,29 @@ export const ColliderObject = ({
 
   // Renderizar collider esférico
   if (colliderType === 'sphere') {
+    // Si tiene PlayerController, NO usar RigidBody - solo movimiento directo
+    if (hasPlayerController) {
+      return (
+        <group ref={colliderGroupRef} position={validPosition} rotation={[0, 0, 0]}>
+          {visibleInGame && (
+            <ColliderVisual
+              colliderType="sphere"
+              position={[0, 0, 0]}
+              scale={validScale}
+              rotation={rotation}
+            />
+          )}
+          <PlayerController
+            objectRef={colliderGroupRef}
+            initialPosition={validPosition}
+            speed={playerControllerProps.speed || 5}
+            enabled={playerControllerProps.enabled !== false}
+            usePhysics={false} // Sin física, solo movimiento directo
+          />
+        </group>
+      );
+    }
+
     // Para sphere, usar el promedio de las escalas como radio
     const radius = (validScale[0] + validScale[1] + validScale[2]) / 6; // Promedio / 2
     
@@ -387,10 +416,8 @@ export const ColliderObject = ({
         type={rigidBodyType}
         position={validPosition}
         rotation={rotationInRadians}
-        lockRotations={hasPlayerController ? [true, false, true] : false}
-        gravityScale={hasPlayerController ? 0 : 1} // Desactivar gravedad inicialmente para PlayerController
-        linearDamping={hasPlayerController ? 0 : undefined}
-        angularDamping={hasPlayerController ? 0 : undefined}
+        lockRotations={false}
+        gravityScale={1}
         canSleep={false}
       >
         <group ref={colliderGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
@@ -409,24 +436,35 @@ export const ColliderObject = ({
             />
           )}
         </group>
-        {hasPlayerController && (
-          <PlayerController
-            objectRef={colliderGroupRef}
-            initialPosition={validPosition}
-            speed={playerControllerProps.speed || 5}
-            enabled={playerControllerProps.enabled !== false}
-            usePhysics={true}
-            rigidBodyRef={rigidBodyRef}
-            boundingBox={boundingBox}
-            scale={validScale}
-          />
-        )}
       </RigidBody>
     );
   }
 
   // Renderizar collider cápsula (similar a cylinder pero con semiesferas)
   if (colliderType === 'capsule') {
+    // Si tiene PlayerController, NO usar RigidBody - solo movimiento directo
+    if (hasPlayerController) {
+      return (
+        <group ref={colliderGroupRef} position={validPosition} rotation={[0, 0, 0]}>
+          {visibleInGame && (
+            <ColliderVisual
+              colliderType="capsule"
+              position={[0, 0, 0]}
+              scale={validScale}
+              rotation={rotation}
+            />
+          )}
+          <PlayerController
+            objectRef={colliderGroupRef}
+            initialPosition={validPosition}
+            speed={playerControllerProps.speed || 5}
+            enabled={playerControllerProps.enabled !== false}
+            usePhysics={false} // Sin física, solo movimiento directo
+          />
+        </group>
+      );
+    }
+
     // Para capsule, scale[0] y scale[2] son el radio, scale[1] es la altura
     const radius = (validScale[0] + validScale[2]) / 2;
     const height = validScale[1];
@@ -456,10 +494,8 @@ export const ColliderObject = ({
         type={rigidBodyType}
         position={validPosition}
         rotation={rotationInRadians}
-        lockRotations={hasPlayerController ? [true, false, true] : false}
-        gravityScale={hasPlayerController ? 0 : 1} // Desactivar gravedad inicialmente para PlayerController
-        linearDamping={hasPlayerController ? 0 : undefined}
-        angularDamping={hasPlayerController ? 0 : undefined}
+        lockRotations={false}
+        gravityScale={1}
         canSleep={false}
       >
         <group ref={colliderGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
@@ -478,18 +514,6 @@ export const ColliderObject = ({
             />
           )}
         </group>
-        {hasPlayerController && (
-          <PlayerController
-            objectRef={colliderGroupRef}
-            initialPosition={validPosition}
-            speed={playerControllerProps.speed || 5}
-            enabled={playerControllerProps.enabled !== false}
-            usePhysics={true}
-            rigidBodyRef={rigidBodyRef}
-            boundingBox={boundingBox}
-            scale={validScale}
-          />
-        )}
       </RigidBody>
     );
   }
