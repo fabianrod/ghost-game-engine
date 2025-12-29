@@ -160,20 +160,59 @@ export const ColliderObject = ({
   // Configurar userData para identificación (para cámaras que siguen colliders)
   useEffect(() => {
     if (objectId) {
-      // Usar un pequeño delay para asegurar que el RigidBody esté montado
-      const timer = setTimeout(() => {
+      // Función para asignar objectId
+      const assignObjectId = () => {
+        let assigned = false;
+        
+        // Si tiene RigidBody, asignar objectId al RigidBody
         if (rigidBodyRef.current) {
           // Asegurar que userData existe antes de asignar
           if (!rigidBodyRef.current.userData) {
             rigidBodyRef.current.userData = {};
           }
           rigidBodyRef.current.userData.objectId = objectId;
+          rigidBodyRef.current.userData.hasPhysics = true;
+          assigned = true;
+        }
+        
+        // IMPORTANTE: Si tiene PlayerController, también asignar objectId al grupo
+        // porque no hay RigidBody en ese caso
+        if (colliderGroupRef.current) {
+          if (!colliderGroupRef.current.userData) {
+            colliderGroupRef.current.userData = {};
+          }
+          colliderGroupRef.current.userData.objectId = objectId;
+          colliderGroupRef.current.userData.hasPhysics = hasPlayerController ? false : (rigidBodyRef.current !== null);
+          // Si hay RigidBody, guardar referencia para que la cámara lo encuentre
+          if (rigidBodyRef.current) {
+            colliderGroupRef.current.userData.rigidBodyRef = rigidBodyRef;
+          }
+          assigned = true;
+        }
+        
+        return assigned;
+      };
+      
+      // Intentar asignar inmediatamente
+      if (assignObjectId()) {
+        // Ya se asignó, no necesitamos delay
+        return;
+      }
+      
+      // Si no se pudo asignar, intentar con delay (para cuando el componente se monte después)
+      const timer1 = setTimeout(() => {
+        if (!assignObjectId()) {
+          // Segundo intento con más delay
+          const timer2 = setTimeout(() => {
+            assignObjectId();
+          }, 200);
+          return () => clearTimeout(timer2);
         }
       }, 100);
       
-      return () => clearTimeout(timer);
+      return () => clearTimeout(timer1);
     }
-  }, [objectId]);
+  }, [objectId, colliderType, hasPlayerController]);
 
   // Establecer posición inmediatamente cuando el RigidBody esté montado (para evitar flotación inicial)
   useEffect(() => {

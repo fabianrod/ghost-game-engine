@@ -4,6 +4,7 @@ import { TerrainWithEditor } from '../terrain/TerrainWithEditor';
 import { SceneObject } from '../game/SceneObject';
 import { ColliderCylinder } from './ColliderCylinder';
 import { CameraComponent } from '../game/CameraComponent';
+import { CameraPreview } from './CameraPreview';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
 import { calculateCylinderCollider } from '../../utils/colliderUtils';
@@ -218,6 +219,8 @@ export const EditorCanvas = ({
           );
         })}
       </Canvas>
+      {/* Preview de cámara del jugador */}
+      <CameraPreview objects={objects} terrainHeightmap={terrainHeightmap} />
     </div>
   );
 };

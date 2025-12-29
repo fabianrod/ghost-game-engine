@@ -5,6 +5,7 @@
   height: 100%;
   overflow: hidden;
   background: transparent;
+  position: relative; /* Asegurar que el preview se posicione relativamente a este contenedor */
 }
 
 .editor-canvas canvas {

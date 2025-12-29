@@ -56,11 +56,20 @@ export const CameraComponent = ({
         let found = null;
         let rigidBody = null;
         let foundGroup = null;
+        const allObjectsWithId = [];
         
         // Buscar en todos los objetos de la escena
         scene.traverse((obj) => {
           // Buscar por objectId en userData
           if (obj.userData?.objectId === targetId) {
+            allObjectsWithId.push({
+              type: obj.isGroup ? 'Group' : obj.isMesh ? 'Mesh' : 'Other',
+              hasTranslation: !!(obj.translation && typeof obj.translation === 'function'),
+              hasRigidBodyRef: !!obj.userData?.rigidBodyRef?.current,
+              hasPhysics: obj.userData?.hasPhysics,
+              position: obj.position ? { x: obj.position.x, y: obj.position.y, z: obj.position.z } : null
+            });
+            
             // Si es un RigidBody de Rapier, usarlo directamente (PRIORIDAD MÁXIMA)
             if (obj.translation && typeof obj.translation === 'function') {
               rigidBody = obj;
@@ -121,7 +130,7 @@ export const CameraComponent = ({
     } else {
       targetRef.current = null;
     }
-  }, [targetId, scene]);
+  }, [targetId, scene, mode, active]);
 
   // Estado de movimiento de la cámara (para controles)
   const currentPosition = useRef(new THREE.Vector3(...position));
@@ -250,9 +259,27 @@ export const CameraComponent = ({
           // PRIORIDAD 3: Si es un objeto Three.js normal (sin física)
           else {
             // Es un objeto Three.js normal - obtener posición mundial
-            targetRef.current.getWorldPosition(targetPos);
-            targetType = 'ThreeObject';
+            // IMPORTANTE: Para grupos con PlayerController sin física, necesitamos
+            // actualizar la matriz del mundo antes de obtener la posición
+            if (targetRef.current.isObject3D) {
+              // Actualizar la matriz del mundo para asegurar que la posición esté actualizada
+              targetRef.current.updateMatrixWorld(true);
+              // Obtener posición mundial
+              targetRef.current.getWorldPosition(targetPos);
+              targetType = 'ThreeObject';
+            } else {
+              // Fallback: intentar obtener posición de otra manera
+              if (targetRef.current.position) {
+                targetPos.set(
+                  targetRef.current.position.x,
+                  targetRef.current.position.y,
+                  targetRef.current.position.z
+                );
+              }
+              targetType = 'ThreeObjectFallback';
+            }
           }
+          
           
           lastTargetPos.current.copy(targetPos);
           

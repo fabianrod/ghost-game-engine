@@ -1,0 +1,73 @@
+.camera-preview-container {
+  position: absolute;
+  width: 300px;
+  height: 225px;
+  background: rgba(20, 20, 20, 0.95);
+  border: 1px solid rgba(100, 100, 100, 0.4);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  user-select: none;
+}
+
+.camera-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(30, 30, 30, 0.8);
+  border-bottom: 1px solid rgba(100, 100, 100, 0.3);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.camera-preview-header.dragging {
+  cursor: grabbing;
+  background: rgba(40, 40, 40, 0.9);
+}
+
+.camera-preview-title {
+  color: rgba(200, 200, 200, 0.9);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.5px;
+}
+
+.camera-preview-close {
+  background: transparent;
+  border: none;
+  color: rgba(180, 180, 180, 0.8);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.camera-preview-close:hover {
+  background: rgba(60, 60, 60, 0.6);
+  color: rgba(220, 220, 220, 1);
+}
+
+.camera-preview-canvas-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.camera-preview-canvas-wrapper canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+

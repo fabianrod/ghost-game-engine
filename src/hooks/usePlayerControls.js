@@ -44,15 +44,58 @@ export const usePlayerControls = () => {
 
   // Manejar movimiento del mouse y pointer lock
   useEffect(() => {
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+    let isTracking = false;
+
     const handleMouseMove = (event) => {
       if (mouse.current.isLocked) {
+        // Pointer lock activo: usar movementX/Y (más preciso)
         // Movimiento horizontal: mouse a la izquierda = mirar a la izquierda
         // Invertimos el signo para que el movimiento sea natural
         mouse.current.x -= event.movementX * 0.002;
         // Movimiento vertical: mouse arriba = mirar arriba
         mouse.current.y -= event.movementY * 0.002;
         mouse.current.y = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouse.current.y));
+      } else {
+        // Pointer lock no activo: usar posición relativa (para tercera persona)
+        // Esto permite rotar el personaje moviendo el mouse (sin necesidad de presionar)
+        if (!isTracking) {
+          lastMouseX = event.clientX;
+          lastMouseY = event.clientY;
+          isTracking = true;
+          return;
+        }
+        
+        const deltaX = event.clientX - lastMouseX;
+        const deltaY = event.clientY - lastMouseY;
+        
+        // Solo actualizar si hay movimiento significativo (evitar drift)
+        if (Math.abs(deltaX) > 0.1 || Math.abs(deltaY) > 0.1) {
+          // Actualizar rotación basada en el movimiento del mouse
+          // Sensibilidad ajustada para movimiento sin pointer lock
+          mouse.current.x -= deltaX * 0.002;
+          mouse.current.y -= deltaY * 0.002;
+          mouse.current.y = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouse.current.y));
+        }
+        
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
       }
+    };
+
+    const handleMouseDown = (event) => {
+      // Resetear tracking al presionar cualquier botón del mouse
+      // Esto permite un control más preciso cuando el usuario quiere reposicionar
+      if (event.button === 0 || event.button === 2) {
+        isTracking = false;
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+      }
+    };
+
+    const handleMouseUp = () => {
+      // No hacer nada especial al soltar
     };
 
     const handlePointerLockChange = () => {
@@ -60,18 +103,30 @@ export const usePlayerControls = () => {
       mouse.current.isLocked = isLocked;
       // Actualizar atributo del body para CSS
       document.body.setAttribute('data-pointer-locked', isLocked);
+      
+      // Resetear tracking cuando cambia el estado del pointer lock
+      isTracking = false;
     };
 
     const handleClick = () => {
-      document.body.requestPointerLock();
+      // Solo activar pointer lock si no está ya activo
+      if (!mouse.current.isLocked) {
+        document.body.requestPointerLock().catch(() => {
+          // Si falla el pointer lock, permitir rotación con mouse presionado
+        });
+      }
     };
 
     window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('pointerlockchange', handlePointerLockChange);
     document.addEventListener('click', handleClick);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
       document.removeEventListener('click', handleClick);
     };
