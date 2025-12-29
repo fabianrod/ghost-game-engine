@@ -8,9 +8,10 @@ import { EditorControls } from './EditorControls';
 import { ToolsPanel } from './ToolsPanel';
 import './LevelEditor.css';
 import { useLevelManager } from '../../hooks/useLevelManager';
-import { EDITOR_CONFIG, LEVEL_DEFAULTS } from '../../constants/gameConstants';
+import { EDITOR_CONFIG, LEVEL_DEFAULTS, TERRAIN_CONFIG } from '../../constants/gameConstants';
 import { saveLevelToStorage, loadLevelFromStorage } from '../../utils/storageUtils';
 import { prepareLevelDataForSave, createNewObject, createNewCollider, createNewCamera, duplicateObject, normalizeModelPath } from '../../utils/objectUtils';
+import { getTerrainHeightAtWorldPosition } from '../../utils/heightmapUtils';
 
 /**
  * Componente principal del editor de niveles
@@ -372,10 +373,28 @@ export const LevelEditor = ({ mode, onModeChange }) => {
 
   // Agregar un objeto al nivel
   const handleAddObject = useCallback((modelPath) => {
-    const newObject = createNewObject({ model: modelPath });
+    // Calcular posición inicial (centro del terreno por defecto)
+    let initialPosition = [0, 0, 0];
+    
+    // Si hay heightmap, calcular altura del terreno en esa posición
+    if (terrainHeightmap && terrainHeightmap.length > 0) {
+      const terrainHeight = getTerrainHeightAtWorldPosition(
+        terrainHeightmap,
+        TERRAIN_CONFIG.SEGMENTS,
+        TERRAIN_CONFIG.SIZE,
+        0, // X
+        0  // Z
+      );
+      initialPosition = [0, terrainHeight, 0];
+    }
+    
+    const newObject = createNewObject({ 
+      model: modelPath,
+      position: initialPosition
+    });
     setObjects((prev) => [...prev, newObject]);
     setSelectedObject(newObject.id);
-  }, []);
+  }, [terrainHeightmap]);
 
   // Agregar un collider invisible al nivel
   const handleAddCollider = useCallback((colliderType) => {

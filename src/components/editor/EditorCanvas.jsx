@@ -7,6 +7,8 @@ import { CameraComponent } from '../game/CameraComponent';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
 import { calculateCylinderCollider } from '../../utils/colliderUtils';
+import { getTerrainHeightAtWorldPosition } from '../../utils/heightmapUtils';
+import { TERRAIN_CONFIG } from '../../constants/gameConstants';
 import './EditorCanvas.css';
 
 /**
@@ -113,7 +115,7 @@ export const EditorCanvas = ({
           args={[100, 100]}
           cellColor="#444"
           sectionColor="#222"
-          position={[0, 0.01, 0]}
+          position={[0, 0, 0]}
         />
 
         {/* Terreno (sin física en editor, solo visualización) */}
@@ -188,6 +190,7 @@ export const EditorCanvas = ({
                 snapSize={snapSize}
                 transformingObjectIdRef={transformingObjectIdRef}
                 lastTransformEndTimeRef={lastTransformEndTimeRef}
+                terrainHeightmap={terrainHeightmap}
               />
             );
           }
@@ -211,6 +214,7 @@ export const EditorCanvas = ({
               snapSize={snapSize}
               transformingObjectIdRef={transformingObjectIdRef}
               lastTransformEndTimeRef={lastTransformEndTimeRef}
+              terrainHeightmap={terrainHeightmap}
             />
           );
         })}
@@ -507,6 +511,7 @@ const EditorSceneObject = memo(({
   snapSize = 1,
   transformingObjectIdRef,
   lastTransformEndTimeRef,
+  terrainHeightmap = null,
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
@@ -585,6 +590,20 @@ const EditorSceneObject = memo(({
     }
   }, [modelOffset, object.model]);
   
+  // Función para obtener la altura del terreno en una posición X, Z
+  const getTerrainHeight = useCallback((x, z) => {
+    if (!terrainHeightmap || terrainHeightmap.length === 0) {
+      return 0; // Sin heightmap, terreno plano
+    }
+    return getTerrainHeightAtWorldPosition(
+      terrainHeightmap,
+      TERRAIN_CONFIG.SEGMENTS,
+      TERRAIN_CONFIG.SIZE,
+      x,
+      z
+    );
+  }, [terrainHeightmap]);
+
   // Memoizar transformaciones para evitar cálculos innecesarios
   const rotationInRadians = useMemo(() => {
     return object.rotation.map((deg) => (deg * Math.PI) / 180);
@@ -599,12 +618,20 @@ const EditorSceneObject = memo(({
       // Deshabilitar actualización automática de matriz para mejor rendimiento
       groupRef.current.matrixAutoUpdate = true; // Mantener true para TransformControls
       
-      // Aplicar offset visualmente: la posición guardada es la "base", pero visualmente aplicamos el offset
+      // Aplicar offset visualmente: la posición guardada es la "base", pero visualmente aplicamos el offset y la altura del terreno
       // Esto asegura que el editor y el juego usen la misma lógica de posicionamiento
       let visualY = object.position[1];
       if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
-        // La posición guardada es la base, aplicamos el offset visualmente
-        visualY = object.position[1] + minYOffsetRef.current;
+        try {
+          // Calcular altura del terreno en esta posición
+          const terrainHeight = getTerrainHeight(object.position[0], object.position[2]);
+          // La posición guardada es la base, aplicamos el offset y la altura del terreno visualmente
+          visualY = object.position[1] + terrainHeight + minYOffsetRef.current;
+        } catch (error) {
+          console.warn('Error calculando altura del terreno:', error);
+          // Fallback: usar solo el offset si hay error
+          visualY = object.position[1] + minYOffsetRef.current;
+        }
       }
       
       groupRef.current.position.set(object.position[0], visualY, object.position[2]);
@@ -617,19 +644,22 @@ const EditorSceneObject = memo(({
       lastRotationRef.current.set(...rotationInRadians);
       lastScaleRef.current.set(...object.scale);
     }
-  }, []); // Solo al montar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Solo al montar - getTerrainHeight es estable gracias a useCallback
   
   // Ajustar posición Y cuando se calcula el offset (para objetos recién agregados)
   useEffect(() => {
     if (groupRef.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && !hasAdjustedInitialPosition.current) {
       // Si el objeto está en [0,0,0] (recién agregado), ajustar visualmente pero guardar posición base
       if (object.position[0] === 0 && object.position[1] === 0 && object.position[2] === 0) {
-        // Aplicar offset visualmente
-        const visualY = minYOffsetRef.current;
+        // Calcular altura del terreno en esta posición
+        const terrainHeight = getTerrainHeight(0, 0);
+        // Aplicar offset y altura del terreno visualmente
+        const visualY = terrainHeight + minYOffsetRef.current;
         groupRef.current.position.y = visualY;
         groupRef.current.updateMatrixWorld();
         
-        // Guardar posición base (0) - el offset se aplicará en el modo juego también
+        // Guardar posición base (0) - el offset y altura del terreno se aplicarán en el modo juego también
         // No actualizar el estado, mantener posición base en [0,0,0]
         
         // Actualizar cache con posición visual
@@ -637,26 +667,36 @@ const EditorSceneObject = memo(({
         hasAdjustedInitialPosition.current = true;
       }
     }
-  }, [modelOffset, object.model, object.scale]); // Recalcular cuando se calcula el offset
+  }, [modelOffset, object.model, object.scale, getTerrainHeight]); // Recalcular cuando se calcula el offset
 
   // Sincronizar cuando cambia el objeto externamente (pero no cuando se está arrastrando)
   // Usar useFrame para sincronización suave y eficiente
   useFrame(() => {
     if (!groupRef.current) return;
 
-    // Forzar posición Y durante arrastre horizontal para evitar que se hunda
-    if (isTransforming.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current && transformMode !== 'scale') {
+    // Forzar posición Y durante arrastre para evitar que se hunda debajo del terreno
+    if (isTransforming.current && transformMode !== 'scale') {
       const currentY = groupRef.current.position.y;
-      if (!isDraggingY.current) {
-        // Durante arrastre horizontal, forzar Y visual al offset (posición base 0 + offset)
-        if (Math.abs(currentY - minYOffsetRef.current) > 0.01) {
-          groupRef.current.position.y = minYOffsetRef.current;
-          groupRef.current.updateMatrixWorld();
-        }
-      } else {
-        // Durante arrastre vertical, asegurar que Y visual no baje del offset mínimo
-        if (currentY < minYOffsetRef.current) {
-          groupRef.current.position.y = minYOffsetRef.current;
+      const currentX = groupRef.current.position.x;
+      const currentZ = groupRef.current.position.z;
+      const terrainHeight = getTerrainHeight(currentX, currentZ);
+      
+      // Calcular altura mínima: terreno + offset (si existe)
+      let minY = terrainHeight;
+      if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        minY = terrainHeight + minYOffsetRef.current;
+      }
+      
+      // SIEMPRE asegurar que el objeto no esté debajo del terreno
+      if (currentY < minY) {
+        groupRef.current.position.y = minY;
+        groupRef.current.updateMatrixWorld();
+      }
+      
+      if (!isDraggingY.current && minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        // Durante arrastre horizontal, forzar Y visual a la altura del terreno + offset
+        if (Math.abs(currentY - minY) > 0.01) {
+          groupRef.current.position.y = minY;
           groupRef.current.updateMatrixWorld();
         }
       }
@@ -681,8 +721,17 @@ const EditorSceneObject = memo(({
     const lastPos = lastPositionRef.current;
     
     // Aplicar offset visualmente: la posición guardada es la base, aplicamos el offset para visualización
+    // Y también la altura del terreno en esa posición
+    // SIEMPRE asegurar que el objeto esté sobre el terreno
+    const terrainHeight = getTerrainHeight(posX, posZ);
+    let minY = terrainHeight;
+    
     if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
-      posY = object.position[1] + minYOffsetRef.current;
+      minY = terrainHeight + minYOffsetRef.current;
+      posY = object.position[1] + terrainHeight + minYOffsetRef.current;
+    } else {
+      // Sin offset, asegurar que al menos esté sobre el terreno
+      posY = Math.max(object.position[1], terrainHeight);
     }
     
     const posChanged = 
@@ -730,7 +779,8 @@ const EditorSceneObject = memo(({
     if (stateScaleChanged && Math.abs(scaleY - lastScale.y) > 0.001) {
       // El offset ya se recalculó en modelOffset, solo necesitamos actualizar la posición visual
       if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
-        const newVisualY = object.position[1] + minYOffsetRef.current;
+        const terrainHeight = getTerrainHeight(posX, posZ);
+        const newVisualY = object.position[1] + terrainHeight + minYOffsetRef.current;
         groupRef.current.position.y = newVisualY;
         lastPositionRef.current.y = newVisualY;
       }
@@ -779,18 +829,20 @@ const EditorSceneObject = memo(({
     if (!snapEnabled) return value;
     return Math.round(value / snapSize) * snapSize;
   }, [snapEnabled, snapSize]);
-  
+
   // Función para ajustar posición Y al terreno (snap to ground)
   const snapToGround = useCallback((position) => {
     // Si estamos moviendo en Y y el objeto tiene un bounding box calculado
     if (minYOffsetRef.current !== 0 && transformMode === 'translate') {
-      // Ajustar Y para que el objeto esté sobre el terreno (Y=0)
-      // La posición Y del grupo debe ser el offset calculado
-      const adjustedY = minYOffsetRef.current;
+      // Calcular altura del terreno en esta posición
+      const terrainHeight = getTerrainHeight(position.x, position.z);
+      // Ajustar Y para que el objeto esté sobre el terreno
+      // La posición Y del grupo debe ser: altura del terreno + offset del modelo
+      const adjustedY = terrainHeight + minYOffsetRef.current;
       return { ...position, y: adjustedY };
     }
     return position;
-  }, [transformMode]);
+  }, [transformMode, getTerrainHeight]);
 
   // Sistema de actualización diferida para estado - actualizar visualmente inmediatamente, estado después
   const pendingUpdateRef = useRef(null);
@@ -815,8 +867,17 @@ const EditorSceneObject = memo(({
       const yMovement = Math.abs(position.y - lastPositionRef.current.y);
       const zMovement = Math.abs(position.z - lastPositionRef.current.z);
       
-      // Durante el arrastre, SIEMPRE mantener el objeto sobre el terreno si tenemos offset calculado
-      // Solo permitir movimiento en Y si el usuario está explícitamente moviendo en Y
+      // SIEMPRE mantener el objeto sobre el terreno - NUNCA permitir que esté debajo
+      // Calcular altura del terreno en la posición actual
+      const terrainHeight = getTerrainHeight(snappedX, snappedZ);
+      
+      // Calcular altura mínima: terreno + offset (si existe)
+      let minY = terrainHeight;
+      if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+        minY = terrainHeight + minYOffsetRef.current;
+      }
+      
+      // Si tenemos offset calculado, usar lógica más sofisticada
       if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
         // Calcular el movimiento horizontal total
         const horizontalMovement = Math.max(xMovement, zMovement);
@@ -829,15 +890,16 @@ const EditorSceneObject = memo(({
         
         if (isMovingInY) {
           // El usuario está moviendo en Y, usar la posición Y actual pero asegurar que esté sobre el terreno
-          // La posición visual ya incluye el offset, así que solo aseguramos que no baje del mínimo
           isDraggingY.current = true;
-          snappedY = Math.max(snappedY, minYOffsetRef.current);
+          snappedY = Math.max(snappedY, minY);
         } else {
           // El usuario está moviendo horizontalmente, mantener el objeto sobre el terreno
-          // La posición visual debe ser el offset (posición base 0 + offset)
-          snappedY = minYOffsetRef.current;
+          snappedY = minY;
           isDraggingY.current = false;
         }
+      } else {
+        // Sin offset calculado, simplemente asegurar que no esté debajo del terreno
+        snappedY = Math.max(snappedY, minY);
       }
       
       groupRef.current.position.set(snappedX, snappedY, snappedZ);
@@ -947,17 +1009,24 @@ const EditorSceneObject = memo(({
         let snappedY = applySnap(position.y);
         const snappedZ = applySnap(position.z);
         
-        // Durante arrastre horizontal, SIEMPRE mantener sobre el terreno
-        // Solo permitir movimiento en Y si el usuario estaba explícitamente moviendo en Y
+        // SIEMPRE mantener sobre el terreno - NUNCA permitir que esté debajo
+        const terrainHeight = getTerrainHeight(snappedX, snappedZ);
+        
+        // Calcular altura mínima: terreno + offset (si existe)
+        let minY = terrainHeight;
         if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
+          minY = terrainHeight + minYOffsetRef.current;
+          
           if (isDraggingY.current) {
             // El usuario estaba moviendo en Y, mantener la posición Y visual pero asegurar que esté sobre el terreno
-            snappedY = Math.max(snappedY, minYOffsetRef.current);
+            snappedY = Math.max(snappedY, minY);
           } else {
             // El usuario estaba moviendo horizontalmente, mantener sobre el terreno
-            // La posición visual debe ser el offset (posición base 0 + offset)
-            snappedY = minYOffsetRef.current;
+            snappedY = minY;
           }
+        } else {
+          // Sin offset calculado, simplemente asegurar que no esté debajo del terreno
+          snappedY = Math.max(snappedY, minY);
         }
         
         // Resetear flag
@@ -996,12 +1065,14 @@ const EditorSceneObject = memo(({
       lastScaleRef.current.set(scale.x, scale.y, scale.z);
 
       // Actualizar estado UNA SOLA VEZ al finalizar drag
-      // IMPORTANTE: Guardar posición base (sin offset) para que coincida con el modo juego
-      // La posición visual incluye el offset, pero guardamos la posición base
+      // IMPORTANTE: Guardar posición base (sin offset y sin altura del terreno) para que coincida con el modo juego
+      // La posición visual incluye el offset y la altura del terreno, pero guardamos la posición base
       let basePositionY = position.y;
       if (minYOffsetRef.current !== 0 && offsetCalculatedRef.current) {
-        // Restar el offset para obtener la posición base
-        basePositionY = position.y - minYOffsetRef.current;
+        // Calcular altura del terreno en esta posición
+        const terrainHeight = getTerrainHeight(position.x, position.z);
+        // Restar el offset y la altura del terreno para obtener la posición base
+        basePositionY = position.y - terrainHeight - minYOffsetRef.current;
       }
       
       // Usar requestAnimationFrame para evitar que el RaycastHandler deseleccione
@@ -1304,6 +1375,20 @@ const EditorColliderObject = memo(({
     }
   }, []);
 
+  // Función para obtener la altura del terreno en una posición X, Z
+  const getTerrainHeight = useCallback((x, z) => {
+    if (!terrainHeightmap || terrainHeightmap.length === 0) {
+      return 0; // Sin heightmap, terreno plano
+    }
+    return getTerrainHeightAtWorldPosition(
+      terrainHeightmap,
+      TERRAIN_CONFIG.SEGMENTS,
+      TERRAIN_CONFIG.SIZE,
+      x,
+      z
+    );
+  }, [terrainHeightmap]);
+
   // Función para aplicar snap a un valor
   const applySnap = useCallback((value) => {
     if (!snapEnabled) return value;
@@ -1321,8 +1406,12 @@ const EditorColliderObject = memo(({
     // Aplicar snap según el modo
     if (snapEnabled && transformMode === 'translate') {
       const snappedX = applySnap(position.x);
-      const snappedY = applySnap(position.y);
+      let snappedY = applySnap(position.y);
       const snappedZ = applySnap(position.z);
+      
+      // SIEMPRE asegurar que el collider no esté debajo del terreno
+      const terrainHeight = getTerrainHeight(snappedX, snappedZ);
+      snappedY = Math.max(snappedY, terrainHeight);
       
       groupRef.current.position.set(snappedX, snappedY, snappedZ);
       position = { x: snappedX, y: snappedY, z: snappedZ };
@@ -1373,6 +1462,16 @@ const EditorColliderObject = memo(({
     
     // NO sincronizar durante arrastre para evitar parpadeo
     if (isDragging.current || isTransforming.current) {
+      // Pero durante el arrastre, asegurar que no esté debajo del terreno
+      const currentY = groupRef.current.position.y;
+      const currentX = groupRef.current.position.x;
+      const currentZ = groupRef.current.position.z;
+      const terrainHeight = getTerrainHeight(currentX, currentZ);
+      
+      if (currentY < terrainHeight) {
+        groupRef.current.position.y = terrainHeight;
+        groupRef.current.updateMatrixWorld();
+      }
       return;
     }
 
@@ -1382,9 +1481,12 @@ const EditorColliderObject = memo(({
       Math.abs(object.position[2] - lastPositionRef.current.z) > 0.001;
 
     if (posChanged) {
-      // Para colliders, usar posición exacta sin ningún offset
-      groupRef.current.position.set(object.position[0], object.position[1], object.position[2]);
-      lastPositionRef.current.set(object.position[0], object.position[1], object.position[2]);
+      // Para colliders, usar posición exacta pero asegurar que no esté debajo del terreno
+      const terrainHeight = getTerrainHeight(object.position[0], object.position[2]);
+      const finalY = Math.max(object.position[1], terrainHeight);
+      
+      groupRef.current.position.set(object.position[0], finalY, object.position[2]);
+      lastPositionRef.current.set(object.position[0], finalY, object.position[2]);
       groupRef.current.updateMatrixWorld();
     }
 
@@ -1447,8 +1549,12 @@ const EditorColliderObject = memo(({
       // Aplicar snap final si es necesario
       if (snapEnabled && transformMode === 'translate') {
         const snappedX = applySnap(position.x);
-        const snappedY = applySnap(position.y);
+        let snappedY = applySnap(position.y);
         const snappedZ = applySnap(position.z);
+        
+        // SIEMPRE asegurar que el collider no esté debajo del terreno
+        const terrainHeight = getTerrainHeight(snappedX, snappedZ);
+        snappedY = Math.max(snappedY, terrainHeight);
         
         groupRef.current.position.set(snappedX, snappedY, snappedZ);
         position = { x: snappedX, y: snappedY, z: snappedZ };

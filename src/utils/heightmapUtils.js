@@ -263,3 +263,29 @@ export function getHeightAt(heightmap, width, height, x, z) {
   return h1 * (1 - fz) + h2 * fz;
 }
 
+/**
+ * Obtiene la altura del terreno en coordenadas del mundo (X, Z)
+ * @param {Float32Array} heightmap - Heightmap del terreno
+ * @param {number} segments - Número de segmentos del heightmap (ancho y alto, asume cuadrado)
+ * @param {number} terrainSize - Tamaño total del terreno en unidades del mundo
+ * @param {number} worldX - Coordenada X del mundo
+ * @param {number} worldZ - Coordenada Z del mundo
+ * @returns {number} Altura del terreno en esa posición, o 0 si no hay heightmap
+ */
+export function getTerrainHeightAtWorldPosition(heightmap, segments, terrainSize, worldX, worldZ) {
+  if (!heightmap || heightmap.length === 0) {
+    return 0; // Sin heightmap, terreno plano en Y=0
+  }
+  
+  const halfSize = terrainSize / 2;
+  
+  // Convertir coordenadas del mundo a índices del heightmap
+  const heightmapX = ((worldX + halfSize) / terrainSize) * (segments - 1);
+  const heightmapZ = ((worldZ + halfSize) / terrainSize) * (segments - 1);
+  
+  // Obtener altura usando interpolación bilineal
+  const height = getHeightAt(heightmap, segments, segments, heightmapX, heightmapZ);
+  
+  return height;
+}
+

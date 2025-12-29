@@ -10,16 +10,25 @@ export const PLAYER_CONFIG = {
   COLLIDER_CENTER_Y: 0.9, // Centro del collider del jugador
   COLLIDER_HALF_HEIGHT: 0.75, // Mitad de la altura del collider
   COLLIDER_RADIUS: 0.15, // Radio del collider del jugador
-  SPEED: 10, // Velocidad de movimiento
+  SPEED: 10, // Velocidad de movimiento (unidades por segundo)
   JUMP_FORCE: 6, // Fuerza de salto
-  LINEAR_DAMPING: 0.1, // Amortiguación lineal
+  LINEAR_DAMPING: 0.1, // Amortiguación lineal (solo para dynamic, no usado en kinematic)
+  // Configuración de Character Controller Profesional
+  GROUND_RAY_DISTANCE: 1.5, // Distancia máxima del raycast para detectar suelo
+  GROUND_SNAP_DISTANCE: 0.1, // Distancia máxima para hacer ground snapping
+  GROUND_SNAP_SPEED: 0.2, // Velocidad de interpolación para ground snapping (0-1)
+  MAX_SLOPE_ANGLE: 45, // Ángulo máximo de pendiente en grados que se puede subir
+  COYOTE_TIME: 0.15, // Tiempo en segundos después de salir de una plataforma donde aún se puede saltar
+  JUMP_BUFFER_TIME: 0.1, // Tiempo en segundos antes de tocar el suelo donde se puede presionar saltar
+  SWEEP_TEST_MARGIN: 0.01, // Margen adicional para sweep tests (evitar penetración)
 };
 
 // Configuración de física
 export const PHYSICS_CONFIG = {
   GRAVITY: [0, -9.81, 0],
-  GROUND_CHECK_THRESHOLD: 0.5, // Umbral para detectar si está en el suelo
-  GROUND_Y_THRESHOLD: 1.0, // Posición Y máxima para considerar que está en el suelo
+  GROUND_CHECK_THRESHOLD: 0.5, // Umbral para detectar si está en el suelo (legacy, no usado en kinematic)
+  GROUND_Y_THRESHOLD: 1.0, // Posición Y máxima para considerar que está en el suelo (legacy)
+  GRAVITY_STRENGTH: 9.81, // Fuerza de gravedad para kinematic (aplicada manualmente)
 };
 
 // Configuración de iluminación

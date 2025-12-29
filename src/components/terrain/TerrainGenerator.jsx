@@ -115,6 +115,12 @@ export const TerrainGenerator = ({
       receiveShadow
       position={[0, 0, 0]}
       name="terrain"
+      userData={{
+        heightmap: currentHeightmap,
+        segments: segments,
+        size: size,
+        maxHeight: maxHeight
+      }}
     >
       <meshStandardMaterial map={texture} />
     </mesh>
