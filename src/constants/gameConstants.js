@@ -105,6 +105,56 @@ export const COLLIDER_CONFIG = {
   MIN_HEIGHT: 0.1,
   MAX_DIMENSION: 1000,
   CYLINDER_SEGMENTS: 32,
+  TYPES: ['cylinder', 'box', 'sphere', 'capsule'],
+  DEFAULT_PHYSICS_MATERIAL: {
+    friction: 0.7,
+    restitution: 0.0, // Rebote (0 = sin rebote, 1 = rebote perfecto)
+  },
+  DEFAULT_IS_TRIGGER: false,
+  DEFAULT_IS_SENSOR: false,
+};
+
+// Configuración de cámaras
+export const CAMERA_COMPONENT_CONFIG = {
+  DEFAULT_FOV: 75,
+  MIN_FOV: 10,
+  MAX_FOV: 180,
+  DEFAULT_NEAR: 0.1,
+  DEFAULT_FAR: 1000,
+  DEFAULT_HEIGHT: 1.65,
+  DEFAULT_DISTANCE: 5,
+  DEFAULT_MODE: 'firstPerson', // 'firstPerson' | 'thirdPerson' | 'free'
+  MODES: ['firstPerson', 'thirdPerson', 'free'],
+};
+
+// Sistema de Tags y Layers (similar a Unity)
+export const TAGS_AND_LAYERS = {
+  DEFAULT_TAG: 'Untagged',
+  DEFAULT_LAYER: 0,
+  TAGS: [
+    'Untagged',
+    'Respawn',
+    'Finish',
+    'EditorOnly',
+    'MainCamera',
+    'Player',
+    'GameController',
+    'Enemy',
+    'Obstacle',
+    'Collectible',
+    'Trigger',
+  ],
+  LAYERS: [
+    { id: 0, name: 'Default' },
+    { id: 1, name: 'TransparentFX' },
+    { id: 2, name: 'Ignore Raycast' },
+    { id: 3, name: 'Water' },
+    { id: 4, name: 'UI' },
+    { id: 5, name: 'Player' },
+    { id: 6, name: 'Enemy' },
+    { id: 7, name: 'Obstacle' },
+    { id: 8, name: 'Trigger' },
+  ],
 };
 
 // Configuración de efectos post-procesamiento

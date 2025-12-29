@@ -1,4 +1,4 @@
-import { RigidBody, CapsuleCollider, CuboidCollider } from '@react-three/rapier';
+import { RigidBody, CapsuleCollider, CuboidCollider, BallCollider } from '@react-three/rapier';
 import { useMemo } from 'react';
 import { OBJECT_CONFIG, COLLIDER_CONFIG } from '../../constants/gameConstants';
 import { calculateCylinderCollider } from '../../utils/colliderUtils';
@@ -8,16 +8,22 @@ import { degreesToRadians, validateVector } from '../../utils/mathUtils';
  * Componente para colliders invisibles que funcionan como límites
  * Similar a los colliders de Unity 3D
  * @param {Object} props
- * @param {string} props.colliderType - Tipo de collider: 'cylinder' o 'box'
+ * @param {string} props.colliderType - Tipo de collider: 'cylinder', 'box', 'sphere', 'capsule'
  * @param {Array} props.position - Posición [x, y, z]
- * @param {Array} props.scale - Escala [x, y, z] (radio X/Z y altura Y para cylinder, dimensiones para box)
+ * @param {Array} props.scale - Escala [x, y, z] (dimensiones según el tipo)
  * @param {Array} props.rotation - Rotación [x, y, z] en grados
+ * @param {boolean} props.isTrigger - Si es un trigger (no bloquea físicamente)
+ * @param {boolean} props.isSensor - Si es un sensor (detecta colisiones sin física)
+ * @param {Object} props.physicsMaterial - Material físico { friction, restitution }
  */
 export const ColliderObject = ({
   colliderType = COLLIDER_CONFIG.DEFAULT_TYPE,
   position = OBJECT_CONFIG.DEFAULT_POSITION,
   scale = OBJECT_CONFIG.DEFAULT_SCALE,
   rotation = OBJECT_CONFIG.DEFAULT_ROTATION,
+  isTrigger = false,
+  isSensor = false,
+  physicsMaterial = COLLIDER_CONFIG.DEFAULT_PHYSICS_MATERIAL,
 }) => {
   // Validar y normalizar inputs
   const validPosition = useMemo(() => validateVector(position, OBJECT_CONFIG.DEFAULT_POSITION), [position]);
@@ -28,6 +34,23 @@ export const ColliderObject = ({
   const rotationInRadians = useMemo(() => {
     return degreesToRadians(validRotation);
   }, [validRotation]);
+
+  // Material físico
+  const materialProps = useMemo(() => {
+    const material = physicsMaterial || COLLIDER_CONFIG.DEFAULT_PHYSICS_MATERIAL;
+    return {
+      friction: material.friction ?? 0.7,
+      restitution: material.restitution ?? 0.0,
+    };
+  }, [physicsMaterial]);
+
+  // Tipo de RigidBody: si es trigger o sensor, usar 'kinematicPositionBased'
+  const rigidBodyType = useMemo(() => {
+    if (isTrigger || isSensor) {
+      return 'kinematicPositionBased'; // No afecta físicamente pero detecta colisiones
+    }
+    return 'fixed'; // Collider estático
+  }, [isTrigger, isSensor]);
 
   // Renderizar collider cilíndrico
   if (colliderType === 'cylinder') {
@@ -77,13 +100,15 @@ export const ColliderObject = ({
 
     return (
       <RigidBody
-        type="fixed"
+        type={rigidBodyType}
         position={validPosition}
         rotation={needsSeparateRigidBody ? combinedRotation : rotationInRadians}
       >
         <CapsuleCollider
           args={[adjustedHalfHeight, adjustedRadius]}
           position={[0, 0, 0]}
+          sensor={isSensor}
+          {...materialProps}
         />
       </RigidBody>
     );
@@ -93,13 +118,59 @@ export const ColliderObject = ({
   if (colliderType === 'box') {
     return (
       <RigidBody
-        type="fixed"
+        type={rigidBodyType}
         position={validPosition}
         rotation={rotationInRadians}
       >
         <CuboidCollider
           args={[validScale[0] / 2, validScale[1] / 2, validScale[2] / 2]}
           position={[0, 0, 0]}
+          sensor={isSensor}
+          {...materialProps}
+        />
+      </RigidBody>
+    );
+  }
+
+  // Renderizar collider esférico
+  if (colliderType === 'sphere') {
+    // Para sphere, usar el promedio de las escalas como radio
+    const radius = (validScale[0] + validScale[1] + validScale[2]) / 6; // Promedio / 2
+    
+    return (
+      <RigidBody
+        type={rigidBodyType}
+        position={validPosition}
+        rotation={rotationInRadians}
+      >
+        <BallCollider
+          args={[radius]}
+          position={[0, 0, 0]}
+          sensor={isSensor}
+          {...materialProps}
+        />
+      </RigidBody>
+    );
+  }
+
+  // Renderizar collider cápsula (similar a cylinder pero con semiesferas)
+  if (colliderType === 'capsule') {
+    // Para capsule, scale[0] y scale[2] son el radio, scale[1] es la altura
+    const radius = (validScale[0] + validScale[2]) / 2;
+    const height = validScale[1];
+    const halfHeight = Math.max(0, (height - radius * 2) / 2);
+    
+    return (
+      <RigidBody
+        type={rigidBodyType}
+        position={validPosition}
+        rotation={rotationInRadians}
+      >
+        <CapsuleCollider
+          args={[halfHeight, radius]}
+          position={[0, 0, 0]}
+          sensor={isSensor}
+          {...materialProps}
         />
       </RigidBody>
     );

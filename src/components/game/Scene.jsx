@@ -5,6 +5,8 @@ import { Terrain } from './Terrain';
 import { Player } from './Player';
 import { LevelLoader } from './LevelLoader';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { useThree } from '@react-three/fiber';
+import { useEffect } from 'react';
 import {
   PHYSICS_CONFIG,
   LIGHTING_CONFIG,
@@ -13,6 +15,35 @@ import {
   POSTPROCESSING_CONFIG,
   PLAYER_CONFIG,
 } from '../../constants/gameConstants';
+
+// Componente que configura la cámara inicial si no hay cámara activa
+const DefaultCameraSetup = () => {
+  const { camera, scene } = useThree();
+  
+  useEffect(() => {
+    // Esperar un frame para verificar si hay cámaras activas
+    const timer = setTimeout(() => {
+      // Verificar si hay alguna cámara activa en la escena
+      let hasActiveCamera = false;
+      scene.traverse((obj) => {
+        if (obj.userData?.isActiveCamera) {
+          hasActiveCamera = true;
+        }
+      });
+      
+      // Si no hay cámara activa, configurar vista del terreno completo
+      if (!hasActiveCamera) {
+        camera.position.set(0, 40, 60);
+        camera.lookAt(0, 0, 0); // Mirar al centro del terreno
+        camera.updateProjectionMatrix();
+      }
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [camera, scene]);
+  
+  return null;
+};
 
 /**
  * Mapa de controles de teclado
@@ -34,7 +65,10 @@ export const GameScene = () => {
     <KeyboardControls map={keyboardMap}>
       <Canvas
         shadows
-        camera={{ position: CAMERA_CONFIG.GAME_POSITION, fov: CAMERA_CONFIG.GAME_FOV }}
+        camera={{ 
+          position: [0, 40, 60], // Vista aérea del terreno completo por defecto (si no hay cámara activa)
+          fov: CAMERA_CONFIG.GAME_FOV
+        }}
         style={{ width: '100vw', height: '100vh' }}
       >
       {/* Iluminación - sincronizada con la posición del sol */}
@@ -65,13 +99,17 @@ export const GameScene = () => {
         sunScale={SKY_CONFIG.SUN_SCALE}
       />
 
+      {/* Configurar cámara inicial si no hay cámara activa */}
+      <DefaultCameraSetup />
+
       {/* Física */}
       <Physics gravity={PHYSICS_CONFIG.GRAVITY}>
         {/* Terreno con colisión */}
         <Terrain />
 
-        {/* Jugador - altura de 1.80m, posición inicial en Y=0.9 (centro del collider) */}
-        <Player position={[0, PLAYER_CONFIG.COLLIDER_CENTER_Y, 0]} />
+        {/* NOTA: El Player por defecto ha sido eliminado.
+            El usuario debe agregar una cámara activa desde el editor para controlar la vista.
+            Si necesita un personaje con física, debe agregar un collider cilíndrico con una cámara activa. */}
 
         {/* Cargar nivel desde JSON */}
         <LevelLoader levelPath="/levels/level1.json" />

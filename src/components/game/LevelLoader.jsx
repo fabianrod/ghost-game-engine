@@ -1,5 +1,6 @@
 import { SceneObject } from './SceneObject';
 import { ColliderObject } from './ColliderObject';
+import { CameraComponent } from './CameraComponent';
 import { useLevel } from '../../hooks/useLevel';
 import { OBJECT_CONFIG, COLLIDER_CONFIG } from '../../constants/gameConstants';
 import { validateObject } from '../../utils/objectUtils';
@@ -52,6 +53,27 @@ export const LevelLoader = ({ levelPath, levelData }) => {
           return null;
         }
 
+        // Si es una cámara, renderizar CameraComponent
+        if (obj.type === 'camera') {
+          return (
+            <CameraComponent
+              key={`camera-${index}-${obj.id || index}`}
+              position={obj.position || OBJECT_CONFIG.DEFAULT_POSITION}
+              rotation={obj.rotation || OBJECT_CONFIG.DEFAULT_ROTATION}
+              fov={obj.fov || 75}
+              near={obj.near || 0.1}
+              far={obj.far || 1000}
+              mode={obj.mode || 'firstPerson'}
+              height={obj.height || 1.65}
+              distance={obj.distance || 5}
+              offset={obj.offset || [0, 0, 0]}
+              targetId={obj.targetId || null}
+              active={obj.active || false}
+              showGizmo={false} // No mostrar gizmo en modo juego
+            />
+          );
+        }
+
         // Si es un collider, renderizar ColliderObject (invisible pero con física)
         if (obj.type === 'collider') {
           const colliderPosition = obj.position || OBJECT_CONFIG.DEFAULT_POSITION;
@@ -71,6 +93,9 @@ export const LevelLoader = ({ levelPath, levelData }) => {
               position={colliderPosition}
               scale={colliderScale}
               rotation={colliderRotation}
+              isTrigger={obj.isTrigger || false}
+              isSensor={obj.isSensor || false}
+              physicsMaterial={obj.physicsMaterial || COLLIDER_CONFIG.DEFAULT_PHYSICS_MATERIAL}
             />
           );
         }
@@ -84,6 +109,7 @@ export const LevelLoader = ({ levelPath, levelData }) => {
         return (
           <SceneObject
             key={`${obj.model}-${index}`}
+            objectId={obj.id} // Pasar el ID del objeto
             model={obj.model}
             position={obj.position}
             scale={obj.scale || OBJECT_CONFIG.DEFAULT_SCALE}
@@ -92,6 +118,8 @@ export const LevelLoader = ({ levelPath, levelData }) => {
             receiveShadow={obj.receiveShadow !== false}
             hasCollider={obj.hasCollider !== false}
             colliderScale={obj.colliderScale || OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE}
+            components={obj.components || []}
+            componentProps={obj.componentProps || {}}
           />
         );
       })}

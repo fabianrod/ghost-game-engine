@@ -2,17 +2,26 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Box, Cylinder } from 'lucide-react';
+import { Box, Cylinder, Camera, Circle } from 'lucide-react';
 
 /**
  * Panel lateral que muestra los objetos disponibles para agregar al nivel
- * Incluye modelos 3D y colliders invisibles
+ * Incluye modelos 3D, colliders invisibles y cámaras
  */
-export const ObjectLibrary = ({ models, onAddObject, onAddCollider }) => {
+export const ObjectLibrary = ({ models, onAddObject, onAddCollider, onAddCamera }) => {
   // Colliders disponibles
   const colliders = [
     { type: 'cylinder', name: 'Collider Cilíndrico', icon: Cylinder },
     { type: 'box', name: 'Collider de Caja', icon: Box },
+    { type: 'sphere', name: 'Collider Esférico', icon: Circle },
+    { type: 'capsule', name: 'Collider Cápsula', icon: Cylinder },
+  ];
+
+  // Cámaras disponibles
+  const cameras = [
+    { type: 'firstPerson', name: 'Cámara Primera Persona', icon: Camera },
+    { type: 'thirdPerson', name: 'Cámara Tercera Persona', icon: Camera },
+    { type: 'free', name: 'Cámara Libre', icon: Camera },
   ];
 
   return (
@@ -56,6 +65,49 @@ export const ObjectLibrary = ({ models, onAddObject, onAddCollider }) => {
                       </TooltipTrigger>
                       <TooltipContent>
                         <p>Click para agregar {collider.name}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                );
+              })}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Sección de Cámaras */}
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+              Cámaras
+            </h4>
+            <div className="space-y-2">
+              {cameras.map((camera, index) => {
+                const Icon = camera.icon;
+                return (
+                  <TooltipProvider key={`camera-${index}`}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Card
+                          className="cursor-pointer transition-all hover:border-primary hover:bg-accent/50 border-l-4 border-l-blue-500"
+                          onClick={() => onAddCamera && onAddCamera(camera.type)}
+                        >
+                          <CardContent className="p-3">
+                            <div className="flex items-center gap-3">
+                              <Icon className="h-5 w-5 text-blue-500" />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium text-foreground truncate">
+                                  {camera.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Componente de cámara
+                                </div>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Click para agregar {camera.name}</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>

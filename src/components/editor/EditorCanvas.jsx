@@ -3,10 +3,43 @@ import { OrbitControls, Sky, TransformControls, Grid, useGLTF } from '@react-thr
 import { TerrainWithEditor } from '../terrain/TerrainWithEditor';
 import { SceneObject } from '../game/SceneObject';
 import { ColliderCylinder } from './ColliderCylinder';
+import { CameraComponent } from '../game/CameraComponent';
 import { useRef, useEffect, useCallback, useMemo, useState, memo } from 'react';
 import * as THREE from 'three';
 import { calculateCylinderCollider } from '../../utils/colliderUtils';
 import './EditorCanvas.css';
+
+/**
+ * Componente que renderiza una línea visual conectando una cámara con su objetivo
+ */
+const CameraTargetLine = ({ cameraPosition, targetPosition, isSelected }) => {
+  const points = useMemo(() => {
+    const start = new THREE.Vector3(...cameraPosition);
+    const end = new THREE.Vector3(...targetPosition);
+    return [start, end];
+  }, [cameraPosition, targetPosition]);
+  
+  const geometry = useMemo(() => {
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array([
+      points[0].x, points[0].y, points[0].z,
+      points[1].x, points[1].y, points[1].z
+    ]);
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return geom;
+  }, [points]);
+  
+  return (
+    <line geometry={geometry}>
+      <lineBasicMaterial
+        color={isSelected ? "#00ff00" : "#00aaff"}
+        linewidth={2}
+        transparent
+        opacity={isSelected ? 0.8 : 0.5}
+      />
+    </line>
+  );
+};
 
 /**
  * Canvas 3D del editor con controles orbitales
@@ -102,8 +135,44 @@ export const EditorCanvas = ({
           lastTransformEndTimeRef={lastTransformEndTimeRef}
         />
 
+        {/* Líneas visuales conectando cámaras con sus objetivos */}
+        {objects
+          .filter(obj => obj.type === 'camera' && obj.mode === 'thirdPerson' && obj.targetId)
+          .map(cameraObj => {
+            const targetObj = objects.find(o => o.id === cameraObj.targetId);
+            if (!targetObj) return null;
+            
+            return (
+              <CameraTargetLine
+                key={`camera-line-${cameraObj.id}`}
+                cameraPosition={cameraObj.position}
+                targetPosition={targetObj.position}
+                isSelected={selectedObject === cameraObj.id || selectedObject === targetObj.id}
+              />
+            );
+          })}
+
         {/* Objetos del nivel (sin física en editor) */}
         {objects.map((obj) => {
+          // Si es una cámara, renderizar como componente de cámara
+          if (obj.type === 'camera') {
+            return (
+              <EditorCameraObject
+                key={obj.id}
+                object={obj}
+                isSelected={selectedObject === obj.id}
+                onSelect={() => onSelectObject(obj.id)}
+                onUpdate={(updates) => onUpdateObject(obj.id, updates)}
+                orbitControlsRef={orbitControlsRef}
+                transformMode={transformMode}
+                snapEnabled={snapEnabled}
+                snapSize={snapSize}
+                transformingObjectIdRef={transformingObjectIdRef}
+                lastTransformEndTimeRef={lastTransformEndTimeRef}
+              />
+            );
+          }
+
           // Si es un collider, renderizar como collider visual
           if (obj.type === 'collider') {
             return (
@@ -1593,6 +1662,50 @@ const EditorColliderObject = memo(({
           </mesh>
         </group>
       );
+    } else if (object.colliderType === 'sphere') {
+      // Para sphere, usar el promedio de las dimensiones como radio
+      const radius = (safeDimensions[0] + safeDimensions[1] + safeDimensions[2]) / 6;
+      const safeRadius = Math.max(0.1, Math.min(1000, radius));
+      
+      return (
+        <group key={`sphere-${dimensionsKey}`} position={[0, 0, 0]}>
+          <mesh position={[0, 0, 0]}>
+            <sphereGeometry args={[safeRadius, 32, 32]} />
+            <meshBasicMaterial
+              color="#00aaff"
+              transparent
+              opacity={isSelected ? 0.4 : 0.3}
+              wireframe={true}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+      );
+    } else if (object.colliderType === 'capsule') {
+      // Para capsule, similar a cylinder pero con semiesferas
+      const radius = (safeDimensions[0] + safeDimensions[2]) / 2;
+      const height = safeDimensions[1];
+      const safeRadius = Math.max(0.1, Math.min(1000, radius));
+      const adjustedHalfHeight = Math.max(0, (height - safeRadius * 2) / 2);
+      const displayHeight = adjustedHalfHeight * 2 + safeRadius * 2;
+      const safeDisplayHeight = Math.max(0.01, Math.min(2000, displayHeight));
+      
+      return (
+        <group key={`capsule-${dimensionsKey}`} position={[0, 0, 0]}>
+          <mesh position={[0, 0, 0]}>
+            <cylinderGeometry args={[safeRadius, safeRadius, safeDisplayHeight, 32]} />
+            <meshBasicMaterial
+              color="#00aaff"
+              transparent
+              opacity={isSelected ? 0.4 : 0.3}
+              wireframe={true}
+              side={THREE.DoubleSide}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+      );
     }
     return null;
   };
@@ -1652,7 +1765,11 @@ const EditorColliderObject = memo(({
         {/* Highlight cuando está seleccionado - usar dimensiones del collider */}
         {isSelected && (
           <mesh position={[0, 0, 0]} frustumCulled={false}>
-            <boxGeometry args={object.scale || [1, 1, 1]} />
+            {object.colliderType === 'sphere' ? (
+              <sphereGeometry args={[(object.scale[0] + object.scale[1] + object.scale[2]) / 6, 16, 16]} />
+            ) : (
+              <boxGeometry args={object.scale || [1, 1, 1]} />
+            )}
             <meshBasicMaterial
               color="#00ff00"
               transparent
@@ -1706,6 +1823,359 @@ const EditorColliderObject = memo(({
     prevProps.object.scale[2] !== nextProps.object.scale[2];
   
   if (posChanged || rotChanged || scaleChanged) return false;
+  if (
+    prevProps.isSelected !== nextProps.isSelected ||
+    prevProps.transformMode !== nextProps.transformMode ||
+    prevProps.snapEnabled !== nextProps.snapEnabled ||
+    prevProps.snapSize !== nextProps.snapSize
+  ) {
+    return false;
+  }
+  
+  return true;
+});
+
+/**
+ * Componente de cámara en el editor con capacidad de selección y transformación
+ * Similar a EditorSceneObject pero para cámaras
+ */
+const EditorCameraObject = memo(({
+  object,
+  isSelected,
+  onSelect,
+  onUpdate,
+  orbitControlsRef,
+  transformMode = 'translate',
+  snapEnabled = true,
+  snapSize = 1,
+  transformingObjectIdRef,
+  lastTransformEndTimeRef,
+}) => {
+  const groupRef = useRef();
+  const transformRef = useRef();
+
+  // Estado de arrastre
+  const isDragging = useRef(false);
+  const isTransforming = useRef(false);
+
+  // Cache para valores anteriores
+  const lastPositionRef = useRef(new THREE.Vector3(...object.position));
+  const lastRotationRef = useRef(new THREE.Euler(...object.rotation.map(deg => (deg * Math.PI) / 180)));
+
+  // Inicializar y actualizar posición del grupo cuando cambia el objeto
+  useEffect(() => {
+    if (groupRef.current) {
+      // Actualizar posición y rotación del grupo desde las props del objeto
+      groupRef.current.position.set(object.position[0], object.position[1], object.position[2]);
+      groupRef.current.rotation.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
+      groupRef.current.updateMatrixWorld();
+      
+      // Actualizar refs de última posición/rotación
+      lastPositionRef.current.set(object.position[0], object.position[1], object.position[2]);
+      lastRotationRef.current.set(...object.rotation.map(deg => (deg * Math.PI) / 180));
+    }
+  }, [object.position, object.rotation]);
+
+  // Función para aplicar snap
+  const applySnap = useCallback((value) => {
+    if (!snapEnabled) return value;
+    return Math.round(value / snapSize) * snapSize;
+  }, [snapEnabled, snapSize]);
+
+  // Función para aplicar transformación con snap
+  const applyTransformSnap = useCallback(() => {
+    if (!groupRef.current) return;
+    
+    let position = groupRef.current.position;
+    const rotation = groupRef.current.rotation;
+
+    // Aplicar snap según el modo
+    if (snapEnabled && transformMode === 'translate') {
+      const snappedX = applySnap(position.x);
+      const snappedY = applySnap(position.y);
+      const snappedZ = applySnap(position.z);
+      
+      groupRef.current.position.set(snappedX, snappedY, snappedZ);
+      position = { x: snappedX, y: snappedY, z: snappedZ };
+      groupRef.current.updateMatrixWorld();
+      
+      lastPositionRef.current.set(position.x, position.y, position.z);
+    }
+
+    // Preparar datos para actualización
+    const rotationDegrees = [
+      (rotation.x * 180) / Math.PI,
+      (rotation.y * 180) / Math.PI,
+      (rotation.z * 180) / Math.PI,
+    ];
+
+    const updateData = {
+      position: [position.x, position.y, position.z],
+      rotation: rotationDegrees,
+    };
+
+    return updateData;
+  }, [snapEnabled, transformMode, applySnap]);
+
+  // Manejar cambios en TransformControls
+  const handleObjectChange = useCallback(() => {
+    if (!groupRef.current || !isTransforming.current) return;
+    applyTransformSnap();
+  }, [applyTransformSnap]);
+
+  // Sincronizar cuando cambia el objeto externamente
+  useFrame(() => {
+    if (!groupRef.current) return;
+    
+    // NO sincronizar durante arrastre
+    if (isDragging.current || isTransforming.current) {
+      return;
+    }
+
+    const posChanged = 
+      Math.abs(object.position[0] - lastPositionRef.current.x) > 0.001 ||
+      Math.abs(object.position[1] - lastPositionRef.current.y) > 0.001 ||
+      Math.abs(object.position[2] - lastPositionRef.current.z) > 0.001;
+
+    if (posChanged) {
+      groupRef.current.position.set(object.position[0], object.position[1], object.position[2]);
+      lastPositionRef.current.set(object.position[0], object.position[1], object.position[2]);
+      groupRef.current.updateMatrixWorld();
+    }
+
+    const rotationInRadians = object.rotation.map(deg => (deg * Math.PI) / 180);
+    const rotChanged = 
+      Math.abs(rotationInRadians[0] - lastRotationRef.current.x) > 0.001 ||
+      Math.abs(rotationInRadians[1] - lastRotationRef.current.y) > 0.001 ||
+      Math.abs(rotationInRadians[2] - lastRotationRef.current.z) > 0.001;
+
+    if (rotChanged) {
+      groupRef.current.rotation.set(...rotationInRadians);
+      lastRotationRef.current.set(...rotationInRadians);
+    }
+
+    if (posChanged || rotChanged) {
+      groupRef.current.updateMatrixWorld();
+    }
+  });
+
+  const handleDragStart = useCallback(() => {
+    isDragging.current = true;
+    isTransforming.current = true;
+    
+    if (transformingObjectIdRef) {
+      transformingObjectIdRef.current = object.id;
+    }
+    
+    if (groupRef.current) {
+      lastPositionRef.current.set(
+        groupRef.current.position.x,
+        groupRef.current.position.y,
+        groupRef.current.position.z
+      );
+    }
+    
+    if (orbitControlsRef.current) {
+      orbitControlsRef.current.enabled = false;
+    }
+  }, [orbitControlsRef, object.id, transformingObjectIdRef]);
+
+  const handleDragEnd = useCallback(() => {
+    if (groupRef.current) {
+      let position = groupRef.current.position;
+      const rotation = groupRef.current.rotation;
+
+      // Aplicar snap final si es necesario
+      if (snapEnabled && transformMode === 'translate') {
+        const snappedX = applySnap(position.x);
+        const snappedY = applySnap(position.y);
+        const snappedZ = applySnap(position.z);
+        
+        groupRef.current.position.set(snappedX, snappedY, snappedZ);
+        position = { x: snappedX, y: snappedY, z: snappedZ };
+        groupRef.current.updateMatrixWorld();
+      }
+
+      const rotationDegrees = [
+        (rotation.x * 180) / Math.PI,
+        (rotation.y * 180) / Math.PI,
+        (rotation.z * 180) / Math.PI,
+      ];
+
+      lastPositionRef.current.set(position.x, position.y, position.z);
+      lastRotationRef.current.set(rotation.x, rotation.y, rotation.z);
+
+      requestAnimationFrame(() => {
+        onUpdate({
+          position: [position.x, position.y, position.z],
+          rotation: rotationDegrees,
+        });
+      });
+    }
+    
+    if (lastTransformEndTimeRef) {
+      lastTransformEndTimeRef.current = Date.now();
+    }
+
+    setTimeout(() => {
+      isTransforming.current = false;
+      isDragging.current = false;
+      if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
+        setTimeout(() => {
+          if (transformingObjectIdRef.current === object.id) {
+            transformingObjectIdRef.current = null;
+          }
+        }, 2500);
+      }
+    }, 500);
+
+    if (orbitControlsRef.current) {
+      orbitControlsRef.current.enabled = true;
+    }
+  }, [orbitControlsRef, onUpdate, object.id, transformingObjectIdRef, lastTransformEndTimeRef, snapEnabled, transformMode, applySnap]);
+
+  // Marcar el objeto con su ID para raycasting
+  useEffect(() => {
+    if (groupRef.current) {
+      groupRef.current.userData.objectId = object.id;
+      groupRef.current.userData.isSelectable = true;
+      groupRef.current.traverse((child) => {
+        if (child.isMesh || child.isGroup) {
+          child.userData.objectId = object.id;
+          child.userData.isSelectable = true;
+        }
+      });
+    }
+  }, [object.id]);
+
+  const groupReadyRef = useRef(false);
+  useEffect(() => {
+    if (groupRef.current && !groupReadyRef.current) {
+      groupReadyRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isSelected) {
+      if (groupRef.current) {
+        groupReadyRef.current = true;
+      } else {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const checkReady = () => {
+          if (groupRef.current) {
+            groupReadyRef.current = true;
+          } else if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(checkReady, 50);
+          }
+        };
+        setTimeout(checkReady, 0);
+      }
+    }
+  }, [isSelected]);
+
+  return (
+    <>
+      <group
+        ref={groupRef}
+        position={object.position}
+        rotation={object.rotation.map(deg => (deg * Math.PI) / 180)}
+        onClick={(e) => {
+          e.stopPropagation();
+          e.delta = 0;
+          const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
+          if (timeSinceLastTransform < 3000) {
+            e.stopPropagation();
+            return;
+          }
+          if (!isSelected || (!isDragging.current && !isTransforming.current)) {
+            onSelect();
+          }
+        }}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          if (!isSelected) {
+            document.body.style.cursor = 'pointer';
+          }
+        }}
+        onPointerOut={(e) => {
+          e.stopPropagation();
+          if (!isSelected) {
+            document.body.style.cursor = 'default';
+          }
+        }}
+      >
+        {/* Componente de cámara con gizmo visual */}
+        {/* IMPORTANTE: En el editor, las cámaras NUNCA deben estar activas para no interferir con OrbitControls */}
+        {/* El gizmo visual NO debe tener position/rotation propios porque el grupo padre ya los maneja */}
+        <CameraComponent
+          position={[0, 0, 0]} // Posición relativa al grupo padre (el grupo ya tiene la posición)
+          rotation={[0, 0, 0]} // Rotación relativa al grupo padre (el grupo ya tiene la rotación)
+          fov={object.fov || 75}
+          near={object.near || 0.1}
+          far={object.far || 1000}
+          mode={object.mode || 'firstPerson'}
+          height={object.height || 1.65}
+          distance={object.distance || 5}
+          offset={object.offset || [0, 0, 0]}
+          targetId={object.targetId || null}
+          active={false} // SIEMPRE false en el editor para no interferir con OrbitControls
+          showGizmo={true}
+          isEditor={true} // Marcar como editor para desactivar sincronización
+        />
+
+        {/* Highlight cuando está seleccionado */}
+        {isSelected && (
+          <mesh position={[0, 0, 0]} frustumCulled={false}>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshBasicMaterial
+              color="#00ff00"
+              transparent
+              opacity={0.1}
+              wireframe
+              depthWrite={false}
+            />
+          </mesh>
+        )}
+      </group>
+
+      {/* TransformControls - solo translate y rotate para cámaras */}
+      {isSelected && groupReadyRef.current && groupRef.current && (
+        <>
+          <TransformControls
+            ref={transformRef}
+            object={groupRef.current}
+            mode={transformMode === 'scale' ? 'translate' : transformMode} // No permitir scale en cámaras
+            onObjectChange={handleObjectChange}
+            translationSnap={snapEnabled && transformMode === 'translate' ? snapSize : null}
+            rotationSnap={snapEnabled && transformMode === 'rotate' ? (Math.PI / 4) : null}
+            onMouseDown={handleDragStart}
+            onMouseUp={handleDragEnd}
+            showX={true}
+            showY={true}
+            showZ={true}
+            space="world"
+            size={1.2}
+          />
+        </>
+      )}
+    </>
+  );
+}, (prevProps, nextProps) => {
+  if (prevProps.object.id !== nextProps.object.id) return false;
+  
+  const posChanged = 
+    prevProps.object.position[0] !== nextProps.object.position[0] ||
+    prevProps.object.position[1] !== nextProps.object.position[1] ||
+    prevProps.object.position[2] !== nextProps.object.position[2];
+    
+  const rotChanged = 
+    prevProps.object.rotation[0] !== nextProps.object.rotation[0] ||
+    prevProps.object.rotation[1] !== nextProps.object.rotation[1] ||
+    prevProps.object.rotation[2] !== nextProps.object.rotation[2];
+  
+  if (posChanged || rotChanged) return false;
   if (
     prevProps.isSelected !== nextProps.isSelected ||
     prevProps.transformMode !== nextProps.transformMode ||

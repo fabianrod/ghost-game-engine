@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { EditorCanvas } from './EditorCanvas';
 import { ObjectLibrary } from './ObjectLibrary';
 import { PropertiesPanel } from './PropertiesPanel';
+import { HierarchyPanel } from './HierarchyPanel';
 import { Toolbar } from './Toolbar';
 import { EditorControls } from './EditorControls';
 import { ToolsPanel } from './ToolsPanel';
@@ -9,7 +10,7 @@ import './LevelEditor.css';
 import { useLevelManager } from '../../hooks/useLevelManager';
 import { EDITOR_CONFIG, LEVEL_DEFAULTS } from '../../constants/gameConstants';
 import { saveLevelToStorage, loadLevelFromStorage } from '../../utils/storageUtils';
-import { prepareLevelDataForSave, createNewObject, createNewCollider, duplicateObject, normalizeModelPath } from '../../utils/objectUtils';
+import { prepareLevelDataForSave, createNewObject, createNewCollider, createNewCamera, duplicateObject, normalizeModelPath } from '../../utils/objectUtils';
 
 /**
  * Componente principal del editor de niveles
@@ -26,6 +27,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   const [terrainHeightmap, setTerrainHeightmap] = useState(null);
   const [terrainPaintSettings, setTerrainPaintSettings] = useState(null);
   const [toolsPanelCollapsed, setToolsPanelCollapsed] = useState(false); // false = expandido, true = colapsado
+  const [hierarchySearchQuery, setHierarchySearchQuery] = useState('');
 
   // Gestor de niveles
   const {
@@ -382,6 +384,13 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     setSelectedObject(newCollider.id);
   }, []);
 
+  // Agregar una cámara al nivel
+  const handleAddCamera = useCallback((cameraMode) => {
+    const newCamera = createNewCamera({ mode: cameraMode });
+    setObjects((prev) => [...prev, newCamera]);
+    setSelectedObject(newCamera.id);
+  }, []);
+
   // Eliminar un objeto
   const handleDeleteObject = (objectId) => {
     setObjects(objects.filter((obj) => obj.id !== objectId));
@@ -575,10 +584,18 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         </div>
       )}
       <div className="editor-layout">
+        <HierarchyPanel
+          objects={objects}
+          selectedObject={selectedObject}
+          onSelectObject={setSelectedObject}
+          searchQuery={hierarchySearchQuery}
+          onSearchChange={setHierarchySearchQuery}
+        />
         <ObjectLibrary
           models={availableModels}
           onAddObject={handleAddObject}
           onAddCollider={handleAddCollider}
+          onAddCamera={handleAddCamera}
         />
         <div className="editor-canvas-wrapper">
           <EditorCanvas
@@ -605,6 +622,7 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         </div>
         <PropertiesPanel
           object={selectedObjectData}
+          allObjects={objects}
           onUpdate={(updates) =>
             selectedObject &&
             handleUpdateObject(selectedObject, updates)

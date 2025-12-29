@@ -1,8 +1,9 @@
 import { useGLTF } from '@react-three/drei';
 import { RigidBody, CuboidCollider } from '@react-three/rapier';
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import { OBJECT_CONFIG } from '../../constants/gameConstants';
 import { degreesToRadians } from '../../utils/mathUtils';
+import { PlayerController } from './PlayerController';
 import * as THREE from 'three';
 
 /**
@@ -17,6 +18,9 @@ import * as THREE from 'three';
  * @param {boolean} props.hasCollider - Si el objeto tiene colisión física (opcional, por defecto true)
  * @param {boolean} props.autoAdjustY - Si ajusta automáticamente la posición Y (opcional, por defecto true)
  * @param {Array} props.colliderScale - Escala del collider [x, y, z] como multiplicador del tamaño base (opcional, por defecto [0.8, 0.8, 0.8])
+ * @param {Array<string>} props.components - Lista de componentes activos (ej: ['playerController']) (opcional)
+ * @param {Object} props.componentProps - Propiedades de los componentes (opcional)
+ * @param {string} props.objectId - ID del objeto para identificación (opcional)
  */
 export const SceneObject = ({ 
   model,
@@ -27,8 +31,17 @@ export const SceneObject = ({
   receiveShadow = true,
   hasCollider = true,
   autoAdjustY = true,
-  colliderScale = OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE
+  colliderScale = OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE,
+  components = [],
+  componentProps = {},
+  objectId = null
 }) => {
+  const objectGroupRef = useRef(null);
+  const rigidBodyRef = useRef(null);
+  
+  // Verificar si tiene PlayerController
+  const hasPlayerController = components && components.includes('playerController');
+  const playerControllerProps = componentProps.playerController || {};
   // Cargar el modelo GLB
   const { scene } = useGLTF(model);
 
@@ -43,11 +56,11 @@ export const SceneObject = ({
 
   // Calcular la altura mínima del modelo (desde el origen)
   const minY = boundingBox.min.y;
-  // Ajustar la posición Y para que el modelo esté sobre el terreno (Y=0)
-  // IMPORTANTE: La posición guardada es la "base", y aquí aplicamos el mismo offset que en el editor
-  // En el editor: visualY = position[1] + (-minY * scale[1])
+  
+  // IMPORTANTE: El cálculo debe ser EXACTAMENTE igual en editor y juego
+  // En el editor: visualY = position[1] + offset, donde offset = -minY * scale[1]
   // En el juego: adjustedY = position[1] - minY * scale[1]
-  // Ambos deben dar el mismo resultado visual
+  // Ambos dan el mismo resultado: position[1] - minY * scale[1]
   const adjustedPosition = autoAdjustY 
     ? [position[0], position[1] - minY * scale[1], position[2]]
     : position;
@@ -64,9 +77,14 @@ export const SceneObject = ({
   );
 
   // Convertir rotación de grados a radianes si es necesario
+  // IMPORTANTE: Para objetos con PlayerController, asegurar rotación inicial en [0, 0, 0]
   const rotationInRadians = useMemo(() => {
+    if (hasPlayerController) {
+      // Si tiene PlayerController, forzar rotación inicial en 0 para evitar volteos
+      return [0, 0, 0];
+    }
     return degreesToRadians(rotation);
-  }, [rotation]);
+  }, [rotation, hasPlayerController]);
 
   // Asegurar que todos los meshes sean raycastables
   useEffect(() => {
@@ -92,23 +110,87 @@ export const SceneObject = ({
     />
   );
 
+  // Si tiene PlayerController, el RigidBody debe ser dinámico
+  const rigidBodyType = hasPlayerController ? 'dynamic' : 'fixed';
+
+  // Configurar userData para identificación (para cámaras que siguen objetos)
+  useEffect(() => {
+    if (objectId) {
+      // Usar un pequeño delay para asegurar que el RigidBody esté montado
+      const timer = setTimeout(() => {
+        // Marcar el RigidBody si existe
+        if (rigidBodyRef.current) {
+          rigidBodyRef.current.userData.objectId = objectId;
+          rigidBodyRef.current.userData.hasPhysics = true;
+        }
+        // Marcar el grupo también
+        if (objectGroupRef.current) {
+          objectGroupRef.current.userData.objectId = objectId;
+          objectGroupRef.current.userData.hasPhysics = hasCollider;
+          objectGroupRef.current.userData.rigidBodyRef = rigidBodyRef;
+        }
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [objectId, hasCollider]);
+
   // Si tiene colisión, envolver en RigidBody
   if (hasCollider) {
     return (
-      <RigidBody type="fixed" position={adjustedPosition}>
-        {objectContent}
+      <RigidBody 
+        ref={rigidBodyRef}
+        type={rigidBodyType} 
+        position={adjustedPosition}
+        rotation={hasPlayerController ? [0, 0, 0] : rotationInRadians} // Rotación inicial en 0 para PlayerController
+        lockRotations={hasPlayerController ? [true, false, true] : false} // Bloquear rotación X y Z si tiene PlayerController
+        gravityScale={1} // Gravedad activa desde el inicio
+      >
+        <group ref={objectGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
+          {objectContent}
+        </group>
         {/* Collider basado en el tamaño del modelo con escala personalizada */}
         <CuboidCollider 
           args={[colliderSize.x / 2, colliderSize.y / 2, colliderSize.z / 2]}
           position={[center.x * scale[0], center.y * scale[1], center.z * scale[2]]}
         />
+        
+        {/* PlayerController si está activo - debe estar dentro del RigidBody */}
+        {hasPlayerController && (
+          <PlayerController
+            objectRef={objectGroupRef}
+            initialPosition={adjustedPosition} // Usar posición absoluta ajustada
+            speed={playerControllerProps.speed || 5}
+            enabled={playerControllerProps.enabled !== false}
+            usePhysics={true}
+            rigidBodyRef={rigidBodyRef}
+            boundingBox={boundingBox}
+            scale={scale}
+          />
+        )}
       </RigidBody>
     );
   }
 
-  // Si no tiene colisión, solo renderizar el objeto
+  // Si no tiene colisión pero tiene PlayerController, usar movimiento directo
+  if (hasPlayerController) {
+    return (
+      <group ref={objectGroupRef} position={adjustedPosition} rotation={rotationInRadians}>
+        {objectContent}
+        <PlayerController
+          objectRef={objectGroupRef}
+          initialPosition={adjustedPosition}
+          speed={playerControllerProps.speed || 5}
+          enabled={playerControllerProps.enabled !== false}
+          usePhysics={false}
+        />
+      </group>
+    );
+  }
+
+  // Si no tiene colisión ni PlayerController, solo renderizar el objeto
   return (
-    <group position={adjustedPosition} rotation={rotationInRadians}>
+    <group ref={objectGroupRef} position={adjustedPosition} rotation={rotationInRadians}>
       {objectContent}
     </group>
   );

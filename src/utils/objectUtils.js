@@ -25,6 +25,13 @@ export function createNewObject(overrides = {}) {
     receiveShadow: overrides.receiveShadow !== undefined ? overrides.receiveShadow : true,
     hasCollider: overrides.hasCollider !== undefined ? overrides.hasCollider : true,
     colliderScale: validateVector(overrides.colliderScale, OBJECT_CONFIG.DEFAULT_COLLIDER_SCALE),
+    // Componentes
+    components: overrides.components || [],
+    componentProps: overrides.componentProps || {},
+    // Tags y Layers
+    tag: overrides.tag || 'Untagged',
+    layer: overrides.layer !== undefined ? overrides.layer : 0,
+    name: overrides.name || `Object_${id.slice(-6)}`,
     ...overrides,
   };
 }
@@ -37,7 +44,16 @@ export function createNewObject(overrides = {}) {
  */
 export function createNewCollider(colliderType = 'cylinder', overrides = {}) {
   const id = overrides.id || `collider-${Date.now()}-${Math.random()}`;
-  const defaultScale = colliderType === 'cylinder' ? [2, 2, 2] : [2, 2, 2];
+  
+  // Escalas por defecto según el tipo
+  let defaultScale;
+  if (colliderType === 'sphere') {
+    defaultScale = [1, 1, 1]; // Radio uniforme
+  } else if (colliderType === 'capsule') {
+    defaultScale = [0.5, 2, 0.5]; // Radio y altura
+  } else {
+    defaultScale = [2, 2, 2]; // Para cylinder y box
+  }
   
   return {
     id,
@@ -46,6 +62,47 @@ export function createNewCollider(colliderType = 'cylinder', overrides = {}) {
     position: validateVector(overrides.position, OBJECT_CONFIG.DEFAULT_POSITION),
     scale: validateVector(overrides.scale, defaultScale),
     rotation: validateVector(overrides.rotation, OBJECT_CONFIG.DEFAULT_ROTATION),
+    // Propiedades de física
+    isTrigger: overrides.isTrigger !== undefined ? overrides.isTrigger : false,
+    isSensor: overrides.isSensor !== undefined ? overrides.isSensor : false,
+    physicsMaterial: overrides.physicsMaterial || {
+      friction: 0.7,
+      restitution: 0.0,
+    },
+    // Tags y Layers
+    tag: overrides.tag || 'Untagged',
+    layer: overrides.layer !== undefined ? overrides.layer : 0,
+    name: overrides.name || `Collider_${colliderType}_${id.slice(-6)}`,
+    ...overrides,
+  };
+}
+
+/**
+ * Crea una cámara nueva con valores por defecto
+ * @param {Object} overrides - Valores a sobrescribir
+ * @returns {Object} Cámara nueva
+ */
+export function createNewCamera(overrides = {}) {
+  const id = overrides.id || `camera-${Date.now()}-${Math.random()}`;
+  
+  return {
+    id,
+    type: 'camera',
+    position: validateVector(overrides.position, [0, 1.65, 0]),
+    rotation: validateVector(overrides.rotation, [0, 0, 0]),
+    fov: overrides.fov !== undefined ? overrides.fov : 75,
+    near: overrides.near !== undefined ? overrides.near : 0.1,
+    far: overrides.far !== undefined ? overrides.far : 1000,
+    mode: overrides.mode || 'firstPerson', // 'firstPerson' | 'thirdPerson' | 'free'
+    height: overrides.height !== undefined ? overrides.height : 1.65,
+    distance: overrides.distance !== undefined ? overrides.distance : 5,
+    offset: validateVector(overrides.offset, [0, 0.5, 0]), // Offset Y por defecto para tercera persona
+    targetId: overrides.targetId || null,
+    active: overrides.active !== undefined ? overrides.active : false,
+    // Tags y Layers
+    tag: overrides.tag || 'MainCamera',
+    layer: overrides.layer !== undefined ? overrides.layer : 0,
+    name: overrides.name || `Camera_${overrides.mode || 'firstPerson'}_${id.slice(-6)}`,
     ...overrides,
   };
 }
@@ -66,6 +123,15 @@ export function prepareLevelDataForSave(objects, levelData = {}, terrainHeightma
       if (obj.type === 'collider') {
         const { colliderScale: _, ...colliderObj } = obj;
         return colliderObj;
+      }
+      // Si es una cámara, asegurar que targetId se incluya
+      if (obj.type === 'camera') {
+        const cameraObj = { ...obj };
+        // Asegurar que targetId esté presente (puede ser null)
+        if (!('targetId' in cameraObj)) {
+          cameraObj.targetId = null;
+        }
+        return colliderScale !== undefined ? { ...cameraObj, colliderScale } : cameraObj;
       }
       // Si es un objeto normal, mantener colliderScale si existe
       return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
@@ -145,14 +211,25 @@ export function validateObject(obj, index = 0) {
     return { valid: false, error: `Objeto ${index} tiene posición inválida` };
   }
   
-  // Para objetos normales, validar que tengan model
-  if (obj.type !== 'collider' && (!obj.model || typeof obj.model !== 'string')) {
+  // Para objetos normales, validar que tengan model (no aplica a colliders ni cámaras)
+  if (obj.type !== 'collider' && obj.type !== 'camera' && (!obj.model || typeof obj.model !== 'string')) {
     return { valid: false, error: `Objeto ${index} no tiene modelo válido` };
   }
   
-  // Para colliders, validar que tengan colliderType
-  if (obj.type === 'collider' && (!obj.colliderType || (obj.colliderType !== 'cylinder' && obj.colliderType !== 'box'))) {
-    return { valid: false, error: `Collider ${index} tiene tipo inválido` };
+  // Para colliders, validar que tengan colliderType válido
+  const validColliderTypes = ['cylinder', 'box', 'sphere', 'capsule'];
+  if (obj.type === 'collider' && (!obj.colliderType || !validColliderTypes.includes(obj.colliderType))) {
+    return { valid: false, error: `Collider ${index} tiene tipo inválido: ${obj.colliderType}` };
+  }
+  
+  // Para cámaras, validar propiedades básicas
+  if (obj.type === 'camera') {
+    if (obj.fov !== undefined && (typeof obj.fov !== 'number' || obj.fov <= 0 || obj.fov > 180)) {
+      return { valid: false, error: `Cámara ${index} tiene FOV inválido` };
+    }
+    if (obj.mode && !['firstPerson', 'thirdPerson', 'free'].includes(obj.mode)) {
+      return { valid: false, error: `Cámara ${index} tiene modo inválido` };
+    }
   }
   
   return { valid: true };
