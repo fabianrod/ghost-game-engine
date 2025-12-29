@@ -220,7 +220,11 @@ export const EditorCanvas = ({
         })}
       </Canvas>
       {/* Preview de cámara del jugador */}
-      <CameraPreview objects={objects} terrainHeightmap={terrainHeightmap} />
+      <CameraPreview
+        objects={objects}
+        terrainHeightmap={terrainHeightmap}
+        selectedObject={selectedObject}
+      />
     </div>
   );
 };

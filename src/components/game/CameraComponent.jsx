@@ -174,11 +174,16 @@ export const CameraComponent = ({
             targetRef.current.getWorldPosition(targetPos);
           }
           
-          // Posición de cámara: detrás del objetivo (offset Z negativo = detrás)
+          // Posición de cámara: detrás del objetivo
+          // En Three.js, Z negativo es "adelante" por defecto desde la perspectiva del objeto
+          // Para tercera persona, queremos que la cámara esté DETRÁS del objetivo mirando hacia él
+          // Si el objetivo está en (0,0,0) y mira hacia Z negativo (adelante), 
+          // la cámara debe estar en Z positivo (atrás) para verlo desde detrás
+          // CORRECCIÓN: Usar +distance para que la cámara esté correctamente detrás (Z positivo)
           cam.position.set(
             targetPos.x + offset[0],
             targetPos.y + offset[1] + height,
-            targetPos.z + offset[2] - distance // Detrás del objetivo
+            targetPos.z + offset[2] + distance // Detrás del objetivo (Z positivo = atrás)
           );
           
           // Hacer que la cámara mire al objetivo
@@ -284,11 +289,15 @@ export const CameraComponent = ({
           lastTargetPos.current.copy(targetPos);
           
           // Calcular posición de la cámara (detrás y arriba del objetivo)
-          // offset[2] negativo = detrás, positivo = delante
+          // En Three.js, Z negativo es "adelante" por defecto desde la perspectiva del objeto
+          // Para tercera persona, queremos que la cámara esté DETRÁS del objetivo mirando hacia él
+          // Si el objetivo está en (0,0,0) y mira hacia Z negativo (adelante),
+          // la cámara debe estar en Z positivo (atrás) para verlo desde detrás
+          // CORRECCIÓN: Usar +distance para que la cámara esté correctamente detrás (Z positivo)
           const cameraPos = new THREE.Vector3(
             targetPos.x + offset[0],
             targetPos.y + offset[1] + height,
-            targetPos.z + offset[2] - distance // Detrás del objetivo (Z negativo)
+            targetPos.z + offset[2] + distance // Detrás del objetivo (Z positivo = atrás)
           );
           
           // Aplicar suavizado (lerp) para movimiento más suave de la cámara

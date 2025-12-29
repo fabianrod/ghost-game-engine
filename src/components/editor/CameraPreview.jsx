@@ -1,154 +1,258 @@
 import { useState, useEffect, useRef } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Physics } from '@react-three/rapier';
-import { Sky, KeyboardControls } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls, Sky, Grid } from '@react-three/drei';
 import { TerrainWithEditor } from '../terrain/TerrainWithEditor';
 import { SceneObject } from '../game/SceneObject';
-import { ColliderObject } from '../game/ColliderObject';
+import { ColliderCylinder } from './ColliderCylinder';
 import { CameraComponent } from '../game/CameraComponent';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
-import {
-  PHYSICS_CONFIG,
-  LIGHTING_CONFIG,
-  SKY_CONFIG,
-  POSTPROCESSING_CONFIG,
-} from '../../constants/gameConstants';
+import * as THREE from 'three';
+import { TERRAIN_CONFIG } from '../../constants/gameConstants';
 import './CameraPreview.css';
 
 /**
- * Mapa de controles de teclado para el preview
- * (aunque no se usen, necesarios para que useKeyboardControls funcione)
+ * Componente que actualiza la cámara del preview usando la posición y rotación ACTUALES
+ * de la cámara en el editor (no calcula desde el objetivo, usa la posición directa)
  */
-const keyboardMap = [
-  { name: 'forward', keys: ['KeyW', 'ArrowUp'] },
-  { name: 'backward', keys: ['KeyS', 'ArrowDown'] },
-  { name: 'left', keys: ['KeyA', 'ArrowLeft'] },
-  { name: 'right', keys: ['KeyD', 'ArrowRight'] },
-  { name: 'jump', keys: ['Space'] },
-];
+const PreviewThirdPersonCamera = ({ cameraObj, objects, scene }) => {
+  const { camera } = useThree();
+  const targetRef = useRef(null);
+  
+  // Buscar el objetivo en la escena de Three.js para calcular hacia dónde mira
+  useEffect(() => {
+    if (!cameraObj.targetId) {
+      targetRef.current = null;
+      return;
+    }
+    
+    const findTarget = () => {
+      let found = null;
+      scene.traverse((obj) => {
+        if (obj.userData?.objectId === cameraObj.targetId) {
+          if (obj.isGroup || obj.isMesh) {
+            if (!found) found = obj;
+          }
+        }
+      });
+      targetRef.current = found;
+    };
+    
+    findTarget();
+    const timer = setTimeout(findTarget, 100);
+    return () => clearTimeout(timer);
+  }, [cameraObj.targetId, scene, objects]);
+  
+  useFrame(() => {
+    if (!cameraObj) return;
+    
+    // Usar la posición ACTUAL de la cámara desde el editor
+    const cameraPos = new THREE.Vector3(
+      cameraObj.position[0] || 0,
+      cameraObj.position[1] || 0,
+      cameraObj.position[2] || 0
+    );
+    
+    // Calcular hacia dónde debe mirar la cámara
+    let lookAtPos = new THREE.Vector3();
+    
+    if (cameraObj.targetId && targetRef.current) {
+      // Si hay objetivo, mirar hacia el objetivo
+      const targetObj = objects.find(obj => obj.id === cameraObj.targetId);
+      if (targetObj) {
+        lookAtPos.set(
+          targetObj.position[0] || 0,
+          targetObj.position[1] || 0,
+          targetObj.position[2] || 0
+        );
+      } else if (targetRef.current.isObject3D) {
+        targetRef.current.updateMatrixWorld(true);
+        targetRef.current.getWorldPosition(lookAtPos);
+      }
+    } else {
+      // Si no hay objetivo, usar la rotación de la cámara para calcular la dirección
+      const rotation = cameraObj.rotation || [0, 0, 0];
+      const rotationRad = rotation.map(r => r * Math.PI / 180);
+      
+      // Calcular dirección hacia adelante basada en la rotación
+      const direction = new THREE.Vector3(0, 0, -1);
+      direction.applyEuler(new THREE.Euler(rotationRad[0], rotationRad[1], rotationRad[2], 'YXZ'));
+      lookAtPos = cameraPos.clone().add(direction);
+    }
+    
+    // Actualizar posición y rotación de la cámara del preview
+    camera.position.copy(cameraPos);
+    camera.lookAt(lookAtPos);
+    camera.fov = cameraObj.fov || 75;
+    camera.near = cameraObj.near || 0.1;
+    camera.far = cameraObj.far || 1000;
+    camera.updateProjectionMatrix();
+  });
+  
+  return null;
+};
 
 /**
- * Componente que renderiza la escena completa para el preview
- * Similar a GameScene pero sin controles de teclado
+ * Componente que renderiza la escena del EDITOR para el preview
+ * Muestra la misma escena del editor pero desde la perspectiva de la cámara de tercera persona
  */
-const PreviewScene = ({ objects, terrainHeightmap }) => {
+const PreviewEditorScene = ({ objects, terrainHeightmap, selectedObject, cameraObj }) => {
+  const { scene } = useThree();
+  
   return (
     <>
-      {/* Iluminación */}
-      <ambientLight intensity={LIGHTING_CONFIG.AMBIENT_INTENSITY} />
+      {/* Iluminación del editor */}
+      <ambientLight intensity={0.6} />
       <directionalLight
-        position={LIGHTING_CONFIG.DIRECTIONAL_POSITION}
-        intensity={LIGHTING_CONFIG.DIRECTIONAL_INTENSITY}
+        position={[30, 80, 30]}
+        intensity={1.2}
         castShadow
-        shadow-mapSize-width={LIGHTING_CONFIG.SHADOW_MAP_SIZE}
-        shadow-mapSize-height={LIGHTING_CONFIG.SHADOW_MAP_SIZE}
-        shadow-camera-far={LIGHTING_CONFIG.SHADOW_CAMERA_FAR}
-        shadow-camera-left={LIGHTING_CONFIG.SHADOW_CAMERA_LEFT}
-        shadow-camera-right={LIGHTING_CONFIG.SHADOW_CAMERA_RIGHT}
-        shadow-camera-top={LIGHTING_CONFIG.SHADOW_CAMERA_TOP}
-        shadow-camera-bottom={LIGHTING_CONFIG.SHADOW_CAMERA_BOTTOM}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-far={50}
+        shadow-camera-left={-10}
+        shadow-camera-right={10}
+        shadow-camera-top={10}
+        shadow-camera-bottom={-10}
       />
 
-      {/* Cielo */}
+      {/* Cielo del editor */}
       <Sky
-        sunPosition={SKY_CONFIG.SUN_POSITION}
-        inclination={SKY_CONFIG.INCLINATION}
-        azimuth={SKY_CONFIG.AZIMUTH}
-        turbidity={SKY_CONFIG.TURBIDITY}
-        rayleigh={SKY_CONFIG.RAYLEIGH}
-        mieCoefficient={SKY_CONFIG.MIE_COEFFICIENT}
-        mieDirectionalG={SKY_CONFIG.MIE_DIRECTIONAL_G}
-        distance={SKY_CONFIG.DISTANCE}
-        sunScale={SKY_CONFIG.SUN_SCALE}
+        sunPosition={[30, 80, 30]}
+        inclination={0.75}
+        azimuth={0.25}
+        turbidity={3}
+        rayleigh={0.5}
+        mieCoefficient={0.003}
+        mieDirectionalG={0.8}
+        distance={10000000}
+        sunScale={0.8}
       />
 
-      {/* Física */}
-      <Physics gravity={PHYSICS_CONFIG.GRAVITY}>
-        {/* Terreno */}
-        <TerrainWithEditor
-          hasPhysics={true}
-          heightmap={terrainHeightmap}
-          onHeightmapChange={null}
-          showEditor={false}
-          paintSettings={null}
+      {/* Grid helper del editor */}
+      <Grid
+        args={[100, 100]}
+        cellColor="#444"
+        sectionColor="#222"
+        position={[0, 0, 0]}
+      />
+
+      {/* Actualizar cámara del preview en tiempo real */}
+      {cameraObj && cameraObj.targetId && (
+        <PreviewThirdPersonCamera
+          cameraObj={cameraObj}
+          objects={objects}
+          scene={scene}
         />
+      )}
 
-        {/* Renderizar objetos del nivel */}
-        {objects.map((obj) => {
-          // Si es una cámara, renderizar CameraComponent
-          if (obj.type === 'camera') {
-            // Solo activar si es tercera persona y está marcada como activa
-            const isThirdPerson = obj.mode === 'thirdPerson';
-            const shouldBeActive = obj.active && isThirdPerson;
-            
-            return (
-              <CameraComponent
-                key={`preview-camera-${obj.id}`}
-                position={obj.position || [0, 0, 0]}
-                rotation={obj.rotation || [0, 0, 0]}
-                fov={obj.fov || 75}
-                near={obj.near || 0.1}
-                far={obj.far || 1000}
-                mode={obj.mode || 'firstPerson'}
-                height={obj.height || 1.65}
-                distance={obj.distance || 5}
-                offset={obj.offset || [0, 0, 0]}
-                targetId={obj.targetId || null}
-                active={shouldBeActive} // Activar solo si es tercera persona y está activa
-                showGizmo={false}
-                isEditor={false} // No es editor, es preview del juego
-              />
-            );
-          }
+      {/* Terreno del editor (sin física) */}
+      <TerrainWithEditor
+        hasPhysics={false}
+        heightmap={terrainHeightmap}
+        onHeightmapChange={null}
+        showEditor={false}
+        paintSettings={null}
+      />
 
-          // Si es un collider, renderizar ColliderObject
-          if (obj.type === 'collider') {
-            return (
-              <ColliderObject
-                key={`preview-collider-${obj.id}`}
-                objectId={obj.id}
-                colliderType={obj.colliderType || 'box'}
-                position={obj.position || [0, 0, 0]}
-                scale={obj.scale || [1, 1, 1]}
-                rotation={obj.rotation || [0, 0, 0]}
-                isTrigger={obj.isTrigger || false}
-                isSensor={obj.isSensor || false}
-                physicsMaterial={obj.physicsMaterial || {}}
-                visibleInGame={obj.visibleInGame || false}
-                components={obj.components || []}
-                componentProps={obj.componentProps || {}}
-              />
-            );
-          }
-
-          // Si es un objeto normal, renderizar SceneObject
-          if (!obj.model) {
-            return null;
-          }
-
+      {/* Renderizar objetos del editor (igual que en EditorCanvas) */}
+      {objects.map((obj) => {
+        // Si es una cámara, renderizar como componente de cámara (con gizmo)
+        if (obj.type === 'camera') {
           return (
-            <SceneObject
-              key={`preview-${obj.id}`}
-              objectId={obj.id}
-              model={obj.model}
-              position={obj.position}
-              scale={obj.scale || [1, 1, 1]}
+            <CameraComponent
+              key={`preview-editor-camera-${obj.id}`}
+              position={obj.position || [0, 0, 0]}
               rotation={obj.rotation || [0, 0, 0]}
-              castShadow={obj.castShadow !== false}
-              receiveShadow={obj.receiveShadow !== false}
-              hasCollider={obj.hasCollider !== false}
-              colliderScale={obj.colliderScale || [0.8, 0.8, 0.8]}
-              components={obj.components || []}
-              componentProps={obj.componentProps || {}}
+              fov={obj.fov || 75}
+              near={obj.near || 0.1}
+              far={obj.far || 1000}
+              mode={obj.mode || 'firstPerson'}
+              height={obj.height || 1.65}
+              distance={obj.distance || 5}
+              offset={obj.offset || [0, 0, 0]}
+              targetId={obj.targetId || null}
+              active={false} // No activar en el preview
+              showGizmo={true} // Mostrar gizmo en el preview
+              isEditor={true}
             />
           );
-        })}
-      </Physics>
+        }
 
-      {/* Efectos post-procesamiento */}
-      <EffectComposer>
-        <Bloom intensity={POSTPROCESSING_CONFIG.BLOOM_INTENSITY} />
-      </EffectComposer>
+        // Si es un collider, renderizar visualización simple
+        if (obj.type === 'collider') {
+          const dimensions = obj.scale || [1, 1, 1];
+          const safeDimensions = dimensions.map(d => Math.max(0.1, d));
+          const isSelected = selectedObject === obj.id;
+          
+          if (obj.colliderType === 'box') {
+            return (
+              <group key={`preview-collider-${obj.id}`} position={obj.position} rotation={obj.rotation.map(r => r * Math.PI / 180)}>
+                <mesh>
+                  <boxGeometry args={safeDimensions} />
+                  <meshBasicMaterial
+                    color="#00aaff"
+                    transparent
+                    opacity={isSelected ? 0.4 : 0.3}
+                    wireframe
+                    side={THREE.DoubleSide}
+                    depthWrite={false}
+                  />
+                </mesh>
+              </group>
+            );
+          } else if (obj.colliderType === 'sphere') {
+            const radius = (safeDimensions[0] + safeDimensions[1] + safeDimensions[2]) / 6;
+            return (
+              <group key={`preview-collider-${obj.id}`} position={obj.position} rotation={obj.rotation.map(r => r * Math.PI / 180)}>
+                <mesh>
+                  <sphereGeometry args={[radius, 32, 32]} />
+                  <meshBasicMaterial
+                    color="#00aaff"
+                    transparent
+                    opacity={isSelected ? 0.4 : 0.3}
+                    wireframe
+                    side={THREE.DoubleSide}
+                    depthWrite={false}
+                  />
+                </mesh>
+              </group>
+            );
+          } else if (obj.colliderType === 'cylinder') {
+            return (
+              <ColliderCylinder
+                key={`preview-collider-${obj.id}`}
+                position={obj.position}
+                scale={safeDimensions}
+                rotation={obj.rotation}
+                isSelected={isSelected}
+                color="#00aaff"
+              />
+            );
+          }
+          return null;
+        }
+        
+        // Si es un objeto normal, renderizar SceneObject
+        if (!obj.model || obj.model.trim() === '') {
+          return null;
+        }
+        
+        return (
+          <SceneObject
+            key={`preview-editor-${obj.id}`}
+            objectId={obj.id}
+            model={obj.model}
+            position={obj.position}
+            scale={obj.scale || [1, 1, 1]}
+            rotation={obj.rotation || [0, 0, 0]}
+            castShadow={obj.castShadow !== false}
+            receiveShadow={obj.receiveShadow !== false}
+            hasCollider={false} // Sin física en el preview del editor
+            colliderScale={obj.colliderScale || [0.8, 0.8, 0.8]}
+            components={obj.components || []}
+            componentProps={obj.componentProps || {}}
+          />
+        );
+      })}
     </>
   );
 };
@@ -157,7 +261,7 @@ const PreviewScene = ({ objects, terrainHeightmap }) => {
  * Componente de preview de cámara que muestra la vista del jugador en tiempo real
  * Solo se muestra si hay una cámara de tercera persona activa
  */
-export const CameraPreview = ({ objects, terrainHeightmap }) => {
+export const CameraPreview = ({ objects, terrainHeightmap, selectedObject }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [hasActiveThirdPersonCamera, setHasActiveThirdPersonCamera] = useState(false);
   const [position, setPosition] = useState(null); // null = usar posición inicial por defecto
@@ -278,16 +382,21 @@ export const CameraPreview = ({ objects, terrainHeightmap }) => {
         </button>
       </div>
       <div className="camera-preview-canvas-wrapper">
-        <KeyboardControls map={keyboardMap}>
-          <Canvas
-            shadows
-            camera={{ position: [0, 5, 5], fov: 75 }}
-            style={{ width: '100%', height: '100%' }}
-            gl={{ antialias: true, alpha: false }}
-          >
-            <PreviewScene objects={objects} terrainHeightmap={terrainHeightmap} />
-          </Canvas>
-        </KeyboardControls>
+        <Canvas
+          shadows
+          camera={{ position: [0, 5, 5], fov: 75 }}
+          style={{ width: '100%', height: '100%' }}
+          gl={{ antialias: true, alpha: false }}
+        >
+          <PreviewEditorScene
+            objects={objects}
+            terrainHeightmap={terrainHeightmap}
+            selectedObject={selectedObject}
+            cameraObj={objects.find(
+              (obj) => obj.type === 'camera' && obj.mode === 'thirdPerson' && obj.active === true
+            )}
+          />
+        </Canvas>
       </div>
     </div>
   );
