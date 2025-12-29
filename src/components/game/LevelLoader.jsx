@@ -22,25 +22,16 @@ export const LevelLoader = ({ levelPath, levelData }) => {
   }
 
   if (error) {
-    console.error('Error cargando nivel:', error);
     return null;
   }
 
   if (!level || !level.objects) {
-    console.warn('LevelLoader: No se proporcionaron datos del nivel válidos');
     return null;
   }
 
   // Si no hay objetos, retornar null sin error
   if (level.objects.length === 0) {
-    console.log('LevelLoader: Nivel cargado sin objetos');
     return null;
-  }
-
-  // Contar colliders para depuración
-  const colliders = level.objects.filter(obj => obj.type === 'collider');
-  if (colliders.length > 0) {
-    console.log(`LevelLoader: Cargando ${colliders.length} collider(s)`, colliders);
   }
 
   return (
@@ -49,7 +40,6 @@ export const LevelLoader = ({ levelPath, levelData }) => {
         // Validar que el objeto tenga las propiedades mínimas
         const validation = validateObject(obj, index);
         if (!validation.valid) {
-          console.warn(`LevelLoader: ${validation.error}`);
           return null;
         }
 
@@ -76,19 +66,14 @@ export const LevelLoader = ({ levelPath, levelData }) => {
 
         // Si es un collider, renderizar ColliderObject (invisible pero con física)
         if (obj.type === 'collider') {
-          const colliderPosition = obj.position || OBJECT_CONFIG.DEFAULT_POSITION;
-          const colliderScale = obj.scale || OBJECT_CONFIG.DEFAULT_SCALE;
-          const colliderRotation = obj.rotation || OBJECT_CONFIG.DEFAULT_ROTATION;
-          console.log(`LevelLoader: Renderizando collider ${index}:`, {
-            type: obj.colliderType,
-            position: colliderPosition,
-            scale: colliderScale,
-            rotation: colliderRotation,
-            'VERIFICAR': 'Esta posición debe coincidir con la del editor',
-          });
+          try {
+            const colliderPosition = obj.position || OBJECT_CONFIG.DEFAULT_POSITION;
+            const colliderScale = obj.scale || OBJECT_CONFIG.DEFAULT_SCALE;
+            const colliderRotation = obj.rotation || OBJECT_CONFIG.DEFAULT_ROTATION;
           return (
             <ColliderObject
               key={`collider-${index}-${obj.id || index}`}
+              objectId={obj.id}
               colliderType={obj.colliderType || COLLIDER_CONFIG.DEFAULT_TYPE}
               position={colliderPosition}
               scale={colliderScale}
@@ -96,20 +81,25 @@ export const LevelLoader = ({ levelPath, levelData }) => {
               isTrigger={obj.isTrigger || false}
               isSensor={obj.isSensor || false}
               physicsMaterial={obj.physicsMaterial || COLLIDER_CONFIG.DEFAULT_PHYSICS_MATERIAL}
+              visibleInGame={obj.visibleInGame || false}
+              components={obj.components || []}
+              componentProps={obj.componentProps || {}}
             />
           );
+          } catch (error) {
+            return null; // No renderizar el collider si hay error
+          }
         }
 
         // Si es un objeto normal, validar que tenga model
         if (!obj.model) {
-          console.warn(`LevelLoader: Objeto en índice ${index} no tiene model, omitiendo`);
           return null;
         }
-
+        
         return (
           <SceneObject
-            key={`${obj.model}-${index}`}
-            objectId={obj.id} // Pasar el ID del objeto
+            key={`${obj.model}-${index}-${obj.id}`} // Incluir ID en la key para evitar problemas de re-render
+            objectId={obj.id} // Pasar el ID del objeto (CRÍTICO para que las cámaras lo encuentren)
             model={obj.model}
             position={obj.position}
             scale={obj.scale || OBJECT_CONFIG.DEFAULT_SCALE}

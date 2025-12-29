@@ -64,7 +64,6 @@ export const useLevelManager = () => {
       // Primero intentar cargar desde localStorage (cambios sin guardar)
       const cachedData = loadLevelFromStorage(filename);
       if (cachedData) {
-        console.log(`✅ Cargando nivel desde localStorage (cambios sin guardar): ${filename}`);
         setCurrentLevel({ filename, data: cachedData });
         setLoading(false);
         return cachedData;
@@ -77,7 +76,6 @@ export const useLevelManager = () => {
       }
       
       const data = await response.json();
-      console.log(`✅ Cargando nivel desde archivo: ${filename}`);
       setCurrentLevel({ filename, data });
       return data;
     } catch (err) {
@@ -134,10 +132,6 @@ export const useLevelManager = () => {
           // Actualizar lista de niveles
           await listLevels();
           
-          // Mostrar mensaje informativo
-          if (filename === 'level1.json') {
-            console.log('✅ Nivel guardado. Los cambios ya están disponibles en el modo juego gracias a localStorage.');
-          }
           return true;
         } catch (err) {
           if (err.name !== 'AbortError') {

@@ -69,6 +69,11 @@ export function createNewCollider(colliderType = 'cylinder', overrides = {}) {
       friction: 0.7,
       restitution: 0.0,
     },
+    // Visibilidad en modo juego
+    visibleInGame: overrides.visibleInGame !== undefined ? overrides.visibleInGame : false,
+    // Componentes
+    components: overrides.components || [],
+    componentProps: overrides.componentProps || {},
     // Tags y Layers
     tag: overrides.tag || 'Untagged',
     layer: overrides.layer !== undefined ? overrides.layer : 0,
@@ -118,23 +123,30 @@ export function prepareLevelDataForSave(objects, levelData = {}, terrainHeightma
   const data = {
     name: levelData.name || LEVEL_DEFAULTS.NAME,
     description: levelData.description || LEVEL_DEFAULTS.DESCRIPTION,
-    objects: objects.map(({ id, colliderScale, ...obj }) => {
-      // Si es un collider, eliminar colliderScale
+    objects: objects.map((obj) => {
+      // IMPORTANTE: Preservar el ID para mantener referencias como targetId
+      // El ID es necesario para que las referencias entre objetos funcionen correctamente
+      const objToSave = { ...obj };
+      
+      // Si es un collider, eliminar colliderScale (no aplica a colliders)
       if (obj.type === 'collider') {
-        const { colliderScale: _, ...colliderObj } = obj;
+        const { colliderScale: _, ...colliderObj } = objToSave;
         return colliderObj;
       }
-      // Si es una cámara, asegurar que targetId se incluya
+      
+      // Si es una cámara, asegurar que targetId se incluya y preserve correctamente
       if (obj.type === 'camera') {
-        const cameraObj = { ...obj };
-        // Asegurar que targetId esté presente (puede ser null)
-        if (!('targetId' in cameraObj)) {
-          cameraObj.targetId = null;
+        // Asegurar que targetId esté presente y no sea undefined
+        // Si es undefined, establecerlo como null explícitamente
+        if (objToSave.targetId === undefined || !('targetId' in objToSave)) {
+          objToSave.targetId = null;
         }
-        return colliderScale !== undefined ? { ...cameraObj, colliderScale } : cameraObj;
+        // Preservar targetId tal como está (puede ser null o un ID válido)
+        return objToSave;
       }
-      // Si es un objeto normal, mantener colliderScale si existe
-      return colliderScale !== undefined ? { ...obj, colliderScale } : obj;
+      
+      // Si es un objeto normal, mantener todas las propiedades incluyendo colliderScale si existe
+      return objToSave;
     }),
   };
 

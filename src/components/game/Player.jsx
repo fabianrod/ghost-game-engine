@@ -4,7 +4,7 @@ import { RigidBody, CapsuleCollider, useRapier } from '@react-three/rapier';
 import { useKeyboardControls } from '@react-three/drei';
 import { usePlayerControls } from '../../hooks/usePlayerControls';
 import { PLAYER_CONFIG, PHYSICS_CONFIG, TERRAIN_CONFIG } from '../../constants/gameConstants';
-import { getHeightAt } from '../../utils/heightmapUtils';
+import { getHeightAt, getTerrainHeightAtWorldPosition } from '../../utils/heightmapUtils';
 import * as THREE from 'three';
 
 /**
@@ -123,10 +123,57 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
     return normal;
   };
 
-  // Configurar cámara FPS
+  // Configurar cámara FPS y posición inicial sobre el terreno
   useEffect(() => {
-    camera.position.set(...position);
-    camera.rotation.order = 'YXZ';
+    const updatePositionOnTerrain = () => {
+      // Calcular altura del terreno en la posición inicial
+      let initialY = position[1];
+      
+      // Intentar obtener altura del terreno
+      if (terrainHeightmapRef.current) {
+        const terrainHeight = getTerrainHeightAtWorldPosition(
+          terrainHeightmapRef.current,
+          TERRAIN_CONFIG.SEGMENTS,
+          TERRAIN_CONFIG.SIZE,
+          position[0],
+          position[2]
+        );
+        // Posición Y = altura del terreno + centro del collider
+        initialY = terrainHeight + PLAYER_CONFIG.COLLIDER_CENTER_Y;
+      } else {
+        // Si no hay heightmap aún, intentar usar getTerrainHeightFromHeightmap
+        const heightmapHeight = getTerrainHeightFromHeightmap(position[0], position[2]);
+        if (heightmapHeight !== null) {
+          initialY = heightmapHeight + PLAYER_CONFIG.COLLIDER_CENTER_Y;
+        }
+      }
+      
+      // Actualizar posición del RigidBody si está disponible
+      if (rigidBodyRef.current) {
+        rigidBodyRef.current.setTranslation({
+          x: position[0],
+          y: initialY,
+          z: position[2]
+        });
+      }
+      
+      camera.position.set(position[0], initialY + (PLAYER_CONFIG.EYE_HEIGHT - PLAYER_CONFIG.COLLIDER_CENTER_Y), position[2]);
+      camera.rotation.order = 'YXZ';
+    };
+    
+    // Ejecutar inmediatamente
+    updatePositionOnTerrain();
+    
+    // Reintentar después de delays para cuando el terreno se carga después
+    const timer1 = setTimeout(updatePositionOnTerrain, 100);
+    const timer2 = setTimeout(updatePositionOnTerrain, 500);
+    const timer3 = setTimeout(updatePositionOnTerrain, 1000);
+    
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+    };
   }, [camera, position]);
 
   /**
@@ -134,6 +181,7 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
    * Usa múltiples rayos para mayor precisión y caching para mejor rendimiento
    */
   const checkGround = (currentPos, delta) => {
+    if (!delta) delta = 0.016; // Fallback a 60fps si no se proporciona
     const currentTime = performance.now() / 1000;
     const posVec = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
     
@@ -322,29 +370,63 @@ export const Player = ({ position = [0, 0.9, 0] }) => {
 
   /**
    * Ground snapping: mantiene al personaje pegado al suelo
+   * Usa la altura del terreno directamente para asegurar que siempre esté sobre el grass
    */
   const applyGroundSnapping = (position) => {
-    if (!isOnGround.current || groundDistance.current > PLAYER_CONFIG.GROUND_SNAP_DISTANCE) {
-      return position;
+    // Si está en el suelo, SIEMPRE posicionar sobre el terreno
+    if (isOnGround.current) {
+      // Obtener altura del terreno en esta posición
+      let terrainHeight = 0;
+      
+      // Intentar usar heightmap primero (más eficiente)
+      const heightmapHeight = getTerrainHeightFromHeightmap(position.x, position.z);
+      if (heightmapHeight !== null) {
+        terrainHeight = heightmapHeight;
+      } else if (terrainHeightmapRef.current) {
+        // Usar la función helper si está disponible
+        terrainHeight = getTerrainHeightAtWorldPosition(
+          terrainHeightmapRef.current,
+          TERRAIN_CONFIG.SEGMENTS,
+          TERRAIN_CONFIG.SIZE,
+          position.x,
+          position.z
+        );
+      } else {
+        // Fallback: usar groundDistance si no hay heightmap
+        if (groundDistance.current <= PLAYER_CONFIG.GROUND_SNAP_DISTANCE) {
+          const colliderBottomOffset = PLAYER_CONFIG.COLLIDER_CENTER_Y - PLAYER_CONFIG.COLLIDER_HALF_HEIGHT;
+          const targetY = position.y - groundDistance.current + colliderBottomOffset;
+          return {
+            x: position.x,
+            y: targetY,
+            z: position.z
+          };
+        }
+        return position;
+      }
+      
+      // Calcular posición Y objetivo: altura del terreno + centro del collider
+      // El collider tiene su centro en COLLIDER_CENTER_Y, así que la posición Y del RigidBody
+      // debe ser: altura del terreno + COLLIDER_CENTER_Y
+      const targetY = terrainHeight + PLAYER_CONFIG.COLLIDER_CENTER_Y;
+      
+      // Suavizar el ajuste con interpolación para evitar saltos bruscos
+      const currentY = position.y;
+      const newY = THREE.MathUtils.lerp(
+        currentY, 
+        targetY, 
+        PLAYER_CONFIG.GROUND_SNAP_SPEED
+      );
+      
+      return {
+        x: position.x,
+        y: newY,
+        z: position.z
+      };
     }
     
-    // Calcular posición Y objetivo
-    const colliderBottomOffset = PLAYER_CONFIG.COLLIDER_CENTER_Y - PLAYER_CONFIG.COLLIDER_HALF_HEIGHT;
-    const targetY = position.y - groundDistance.current + colliderBottomOffset;
-    
-    // Suavizar el ajuste con interpolación
-    const currentY = position.y;
-    const newY = THREE.MathUtils.lerp(
-      currentY, 
-      targetY, 
-      PLAYER_CONFIG.GROUND_SNAP_SPEED
-    );
-    
-    return {
-      x: position.x,
-      y: newY,
-      z: position.z
-    };
+    // Si no está en el suelo (saltando/cayendo), no aplicar snapping
+    return position;
   };
 
   // Manejar movimiento del jugador y rotación de cámara

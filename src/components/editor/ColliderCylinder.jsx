@@ -35,7 +35,6 @@ export const ColliderCylinder = ({
   }, [rotation]);
 
   if (!colliderParams) {
-    console.warn('[ColliderCylinder] Error calculando parámetros del collider');
     return null;
   }
 
@@ -80,7 +79,6 @@ export const ColliderCylinder = ({
       </group>
     );
   } catch (error) {
-    console.error('[ColliderCylinder] Error renderizando cilindro:', error);
     // Retornar un cilindro por defecto seguro en caso de error
     return (
       <group position={position} rotation={rotationInRadians}>

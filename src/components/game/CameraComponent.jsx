@@ -50,30 +50,60 @@ export const CameraComponent = ({
     if (targetId) {
       // Buscar el objeto en la escena (con retry para asegurar que esté montado)
       let retryCount = 0;
-      const maxRetries = 30; // Intentar hasta 3 segundos
+      const maxRetries = 50; // Aumentar a 5 segundos para dar más tiempo
       
       const findTarget = () => {
         let found = null;
         let rigidBody = null;
+        let foundGroup = null;
         
         // Buscar en todos los objetos de la escena
         scene.traverse((obj) => {
+          // Buscar por objectId en userData
           if (obj.userData?.objectId === targetId) {
-            // Si es un RigidBody de Rapier, usarlo directamente
+            // Si es un RigidBody de Rapier, usarlo directamente (PRIORIDAD MÁXIMA)
             if (obj.translation && typeof obj.translation === 'function') {
               rigidBody = obj;
+              found = obj;
             }
-            // Si tiene referencia a RigidBody, obtenerla
+            // Si tiene referencia a RigidBody, obtenerla (PRIORIDAD ALTA)
             else if (obj.userData?.hasPhysics && obj.userData?.rigidBodyRef?.current) {
-              rigidBody = obj.userData.rigidBodyRef.current;
+              const rb = obj.userData.rigidBodyRef.current;
+              if (rb && rb.translation && typeof rb.translation === 'function') {
+                rigidBody = rb;
+                found = obj;
+              }
             }
-            found = obj;
+            // Si es un grupo o mesh con objectId, guardarlo (PRIORIDAD BAJA)
+            else if (obj.isGroup || obj.isMesh) {
+              if (!foundGroup) {
+                foundGroup = obj;
+                found = obj;
+              }
+            }
           }
         });
         
         // Priorizar RigidBody si existe (para objetos con física)
+        // IMPORTANTE: Siempre usar el RigidBody directamente si está disponible
         if (rigidBody) {
           targetRef.current = rigidBody;
+        } else if (foundGroup) {
+          // Si encontramos un grupo, SIEMPRE intentar obtener su RigidBody
+          // Esto es crítico porque el PlayerController mueve el RigidBody, no el grupo
+          if (foundGroup.userData?.rigidBodyRef?.current) {
+            const rb = foundGroup.userData.rigidBodyRef.current;
+            // Verificar que el RigidBody es válido antes de usarlo
+            if (rb && rb.translation && typeof rb.translation === 'function') {
+              targetRef.current = rb; // Usar el RigidBody directamente
+            } else {
+              // RigidBody no válido, usar grupo como fallback
+              targetRef.current = foundGroup;
+            }
+          } else {
+            // No hay referencia a RigidBody, usar grupo directamente
+            targetRef.current = foundGroup;
+          }
         } else if (found) {
           targetRef.current = found;
         } else {
@@ -82,7 +112,6 @@ export const CameraComponent = ({
           if (retryCount < maxRetries) {
             setTimeout(findTarget, 100);
           } else {
-            console.warn('[CameraComponent] No se pudo encontrar el objetivo:', targetId);
             targetRef.current = null;
           }
         }
@@ -148,7 +177,6 @@ export const CameraComponent = ({
         } else {
           // Si no hay objetivo, usar posición por defecto (vista desde arriba y atrás)
           cam.position.set(position[0] || 0, (position[1] || 0) + height + 3, (position[2] || 0) - distance);
-          console.warn('[CameraComponent] Cámara de tercera persona sin objetivo configurado. Usando posición por defecto.');
         }
         currentPosition.current.set(cam.position.x, cam.position.y, cam.position.z);
       } else {
@@ -174,6 +202,11 @@ export const CameraComponent = ({
     }
   }, [active, fov, near, far, mode, position, rotationInRadians, height, distance, offset, camera, targetRef]);
 
+  // Debug: contador de frames para logs periódicos
+  const debugFrameCount = useRef(0);
+  const lastTargetPos = useRef(new THREE.Vector3());
+  const lastCameraPos = useRef(new THREE.Vector3());
+
   // Actualizar cámara principal cada frame si está activa
   // IMPORTANTE: No sincronizar si está en el editor para no interferir con OrbitControls
   // Los controles de movimiento se manejan en CameraControls (solo en modo juego)
@@ -181,6 +214,7 @@ export const CameraComponent = ({
     if (!active || !cameraRef.current || isEditor) return;
 
     const cam = cameraRef.current;
+    debugFrameCount.current++;
     
     // Si estamos en modo juego y hay controles, CameraControls manejará el movimiento
     // Aquí solo manejamos thirdPerson que no necesita controles de movimiento
@@ -188,36 +222,83 @@ export const CameraComponent = ({
       if (targetRef.current) {
         // Tercera persona: la cámara sigue al objetivo
         const targetPos = new THREE.Vector3();
+        let targetType = 'unknown';
         
         // Obtener posición del objetivo
-        if (targetRef.current.translation) {
-          // Es un RigidBody de Rapier - obtener posición directamente
-          const rbPosition = targetRef.current.translation();
-          targetPos.set(rbPosition.x, rbPosition.y, rbPosition.z);
-        } else if (targetRef.current.userData?.rigidBodyRef?.current) {
-          // Tiene referencia a RigidBody - obtener posición del RigidBody
-          const rbPosition = targetRef.current.userData.rigidBodyRef.current.translation();
-          targetPos.set(rbPosition.x, rbPosition.y, rbPosition.z);
-        } else {
-          // Es un objeto Three.js normal - obtener posición mundial
-          targetRef.current.getWorldPosition(targetPos);
+        try {
+          // PRIORIDAD 1: Si es un RigidBody directo (mejor caso)
+          if (targetRef.current.translation && typeof targetRef.current.translation === 'function') {
+            // Es un RigidBody de Rapier - obtener posición directamente
+            const rbPosition = targetRef.current.translation();
+            targetPos.set(rbPosition.x, rbPosition.y, rbPosition.z);
+            targetType = 'RigidBody';
+          } 
+          // PRIORIDAD 2: Si tiene referencia a RigidBody en userData
+          else if (targetRef.current.userData?.rigidBodyRef?.current) {
+            // Tiene referencia a RigidBody - obtener posición del RigidBody
+            const rb = targetRef.current.userData.rigidBodyRef.current;
+            if (rb && rb.translation && typeof rb.translation === 'function') {
+              const rbPosition = rb.translation();
+              targetPos.set(rbPosition.x, rbPosition.y, rbPosition.z);
+              targetType = 'GroupWithRigidBody';
+            } else {
+              // Fallback: usar posición del grupo (no ideal, pero funcional)
+              targetRef.current.getWorldPosition(targetPos);
+              targetType = 'GroupFallback';
+            }
+          } 
+          // PRIORIDAD 3: Si es un objeto Three.js normal (sin física)
+          else {
+            // Es un objeto Three.js normal - obtener posición mundial
+            targetRef.current.getWorldPosition(targetPos);
+            targetType = 'ThreeObject';
+          }
+          
+          lastTargetPos.current.copy(targetPos);
+          
+          // Calcular posición de la cámara (detrás y arriba del objetivo)
+          // offset[2] negativo = detrás, positivo = delante
+          const cameraPos = new THREE.Vector3(
+            targetPos.x + offset[0],
+            targetPos.y + offset[1] + height,
+            targetPos.z + offset[2] - distance // Detrás del objetivo (Z negativo)
+          );
+          
+          // Aplicar suavizado (lerp) para movimiento más suave de la cámara
+          const lerpFactor = 0.1; // Factor de interpolación (0.1 = 10% por frame)
+          cam.position.lerp(cameraPos, lerpFactor);
+          
+          lastCameraPos.current.copy(cameraPos);
+          
+          // Hacer que la cámara mire al objetivo (con suavizado también)
+          const lookAtTarget = new THREE.Vector3();
+          lookAtTarget.lerp(targetPos, lerpFactor);
+          cam.lookAt(targetPos); // Mirar directamente al objetivo (sin suavizado en lookAt para mejor respuesta)
+        } catch (error) {
+          // Si hay error, intentar re-buscar el objetivo
+          if (targetId) {
+            // Forzar re-búsqueda del objetivo en el siguiente frame
+            targetRef.current = null;
+          }
         }
-        
-        // Calcular posición de la cámara (detrás y arriba del objetivo)
-        // offset[2] negativo = detrás, positivo = delante
-        const cameraPos = new THREE.Vector3(
-          targetPos.x + offset[0],
-          targetPos.y + offset[1] + height,
-          targetPos.z + offset[2] - distance // Detrás del objetivo (Z negativo)
-        );
-        
-        cam.position.copy(cameraPos);
-        
-        // Hacer que la cámara mire al objetivo
-        cam.lookAt(targetPos);
-      } else {
-        // Si no hay objetivo, mantener posición actual o usar posición por defecto
-        // No hacer nada, mantener la posición actual
+      } else if (targetId) {
+        // Si hay targetId pero no se encontró el objetivo, intentar buscarlo de nuevo
+        // Esto puede pasar si el objeto se carga después de la cámara
+        // (solo hacer esto ocasionalmente para no saturar)
+        if (Math.random() < 0.01) { // 1% de probabilidad por frame
+          // Re-buscar el objetivo
+          scene.traverse((obj) => {
+            if (obj.userData?.objectId === targetId) {
+              if (obj.translation && typeof obj.translation === 'function') {
+                targetRef.current = obj;
+              } else if (obj.userData?.rigidBodyRef?.current) {
+                targetRef.current = obj.userData.rigidBodyRef.current;
+              } else if (obj.isGroup || obj.isMesh) {
+                targetRef.current = obj;
+              }
+            }
+          });
+        }
       }
       
       // Sincronizar con la cámara principal

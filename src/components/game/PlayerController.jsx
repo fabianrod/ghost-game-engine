@@ -53,7 +53,7 @@ export const PlayerController = ({
   // Inicializar posición desde el RigidBody si usa física
   useEffect(() => {
     if (usePhysics && rigidBodyRef && rigidBodyRef.current && !initialized.current) {
-      // Esperar a que el mundo de física esté listo
+      // Establecer posición inmediatamente (sin delay) para evitar que la gravedad lo mueva
       const initTimer = setTimeout(() => {
         if (rigidBodyRef.current) {
           const initialPos = new THREE.Vector3(...initialPosition);
@@ -66,11 +66,16 @@ export const PlayerController = ({
           // Asegurar que la rotación inicial sea [0, 0, 0] (sin voltearse)
           rigidBodyRef.current.setRotation({ x: 0, y: 0, z: 0, w: 1 });
           
+          // Activar gravedad después de establecer la posición
+          if (rigidBodyRef.current.setGravityScale) {
+            rigidBodyRef.current.setGravityScale(1);
+          }
+          
           currentPosition.current.copy(initialPos);
           currentRotation.current.set(0, 0, 0); // Rotación inicial en 0
           initialized.current = true;
         }
-      }, 200);
+      }, 0); // Ejecutar inmediatamente en el siguiente tick
       
       return () => clearTimeout(initTimer);
     } else if (!usePhysics) {
@@ -95,6 +100,10 @@ export const PlayerController = ({
     return isGrounded.current;
   };
   
+  // Debug: contador de frames para logs periódicos
+  const debugFrameCount = useRef(0);
+  const lastPosition = useRef(new THREE.Vector3());
+
   // Manejar movimiento cada frame
   useFrame((state, delta) => {
     if (!enabled || !initialized.current) return;
@@ -121,6 +130,8 @@ export const PlayerController = ({
     const left = keyboardState.left || false;
     const right = keyboardState.right || false;
     const jump = keyboardState.jump || false;
+    
+    debugFrameCount.current++;
     
     // Actualizar rotación con el mouse (solo si está bloqueado)
     if (mouse.current && mouse.current.isLocked) {
@@ -165,13 +176,15 @@ export const PlayerController = ({
         moveDirection.z * speed
       );
       
-      // Aplicar velocidad al RigidBody
-      // Mantener velocidad Y para gravedad y saltos
+      // IMPORTANTE: Aplicar velocidad CADA FRAME, incluso si no hay input
+      // Esto asegura que el RigidBody mantenga la velocidad deseada y no sea afectado por fricción
+      // Si no hay input, establecer velocidad en 0 para detener el movimiento
       rigidBodyRef.current.setLinvel({
         x: horizontalVelocity.x,
         y: currentVel.y, // Mantener velocidad Y (gravedad/salto)
         z: horizontalVelocity.z,
       });
+      
       
       // Actualizar posición actual desde el RigidBody para mantener sincronización
       const rbPosition = rigidBodyRef.current.translation();

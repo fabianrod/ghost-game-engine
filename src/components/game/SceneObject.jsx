@@ -118,13 +118,21 @@ export const SceneObject = ({
     if (objectId) {
       // Usar un pequeño delay para asegurar que el RigidBody esté montado
       const timer = setTimeout(() => {
-        // Marcar el RigidBody si existe
+        // Marcar el RigidBody si existe y tiene userData
         if (rigidBodyRef.current) {
+          // Asegurar que userData existe antes de asignar
+          if (!rigidBodyRef.current.userData) {
+            rigidBodyRef.current.userData = {};
+          }
           rigidBodyRef.current.userData.objectId = objectId;
           rigidBodyRef.current.userData.hasPhysics = true;
         }
         // Marcar el grupo también
         if (objectGroupRef.current) {
+          // Asegurar que userData existe antes de asignar
+          if (!objectGroupRef.current.userData) {
+            objectGroupRef.current.userData = {};
+          }
           objectGroupRef.current.userData.objectId = objectId;
           objectGroupRef.current.userData.hasPhysics = hasCollider;
           objectGroupRef.current.userData.rigidBodyRef = rigidBodyRef;
@@ -135,6 +143,24 @@ export const SceneObject = ({
     }
   }, [objectId, hasCollider]);
 
+  // Establecer posición inmediatamente cuando el RigidBody esté montado (para evitar flotación inicial)
+  useEffect(() => {
+    if (hasPlayerController && rigidBodyRef.current) {
+      // Establecer posición y velocidad inmediatamente para evitar que la gravedad lo mueva
+      const timer = setTimeout(() => {
+        if (rigidBodyRef.current) {
+          const pos = new THREE.Vector3(...adjustedPosition);
+          rigidBodyRef.current.setTranslation(pos);
+          rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 });
+          rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 });
+          rigidBodyRef.current.setRotation({ x: 0, y: 0, z: 0, w: 1 });
+        }
+      }, 0); // Ejecutar en el siguiente tick
+      
+      return () => clearTimeout(timer);
+    }
+  }, [hasPlayerController, adjustedPosition]);
+
   // Si tiene colisión, envolver en RigidBody
   if (hasCollider) {
     return (
@@ -144,7 +170,10 @@ export const SceneObject = ({
         position={adjustedPosition}
         rotation={hasPlayerController ? [0, 0, 0] : rotationInRadians} // Rotación inicial en 0 para PlayerController
         lockRotations={hasPlayerController ? [true, false, true] : false} // Bloquear rotación X y Z si tiene PlayerController
-        gravityScale={1} // Gravedad activa desde el inicio
+        gravityScale={hasPlayerController ? 0 : 1} // Desactivar gravedad inicialmente para PlayerController (se activará después)
+        linearDamping={hasPlayerController ? 0 : undefined} // Sin damping lineal para PlayerController (movimiento más responsivo)
+        angularDamping={hasPlayerController ? 0 : undefined} // Sin damping angular para PlayerController
+        canSleep={false} // Evitar que el cuerpo se duerma (importante para PlayerController)
       >
         <group ref={objectGroupRef} position={[0, 0, 0]} rotation={[0, 0, 0]}>
           {objectContent}

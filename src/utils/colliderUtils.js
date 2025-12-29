@@ -10,13 +10,11 @@
 export function calculateCylinderCollider({ type, position, scale, rotation }) {
   try {
     if (type !== 'cylinder') {
-      console.warn('[calculateCylinderCollider] Tipo de collider no soportado:', type);
       return null;
     }
 
     // Validar y normalizar scale
     if (!scale || !Array.isArray(scale) || scale.length < 3) {
-      console.warn('[calculateCylinderCollider] Escala inválida, usando valores por defecto:', scale);
       scale = [1, 1, 1];
     }
 
@@ -46,7 +44,6 @@ export function calculateCylinderCollider({ type, position, scale, rotation }) {
       rotation: validRotation,
     };
   } catch (error) {
-    console.error('[calculateCylinderCollider] Error calculando collider:', error);
     // Retornar valores por defecto seguros en caso de error
     return {
       radius: 1,
@@ -72,7 +69,6 @@ export function getCapsuleTotalHeight(halfHeight, radius) {
     // Una cápsula tiene: altura del cilindro (halfHeight * 2) + dos semiesferas (radius * 2)
     return validHalfHeight * 2 + validRadius * 2;
   } catch (error) {
-    console.error('[getCapsuleTotalHeight] Error calculando altura:', error);
     return 2; // Valor por defecto seguro
   }
 }

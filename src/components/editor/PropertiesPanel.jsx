@@ -337,10 +337,10 @@ export const PropertiesPanel = ({
                     <SelectContent>
                       <SelectItem value="none">Ninguno</SelectItem>
                       {allObjects
-                        .filter(obj => obj.type === 'object' && obj.id !== object.id) // Solo objetos normales, excluir esta cámara
+                        .filter(obj => (obj.type === 'object' || obj.type === 'collider') && obj.id !== object.id) // Objetos normales y colliders, excluir esta cámara
                         .map(obj => (
                           <SelectItem key={obj.id} value={obj.id}>
-                            {obj.name || `Objeto_${obj.id.slice(-6)}`}
+                            {obj.name || (obj.type === 'collider' ? `Collider_${obj.colliderType || 'unknown'}_${obj.id.slice(-6)}` : `Objeto_${obj.id.slice(-6)}`)}
                           </SelectItem>
                         ))}
                     </SelectContent>
@@ -820,6 +820,120 @@ export const PropertiesPanel = ({
                 <p className="text-xs text-muted-foreground italic">
                   Un sensor detecta colisiones sin respuesta física
                 </p>
+
+                <Separator />
+
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="visibleInGame"
+                    checked={object.visibleInGame || false}
+                    onCheckedChange={(checked) => onUpdate({ visibleInGame: checked })}
+                  />
+                  <Label htmlFor="visibleInGame" className="cursor-pointer">
+                    Visible en Modo Juego
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground italic">
+                  Muestra el collider con un color blanquecino en el modo juego
+                </p>
+              </div>
+            </CollapsibleSection>
+
+            <Separator />
+
+            {/* Componentes */}
+            <CollapsibleSection title="Componentes" defaultOpen={false}>
+              <div className="space-y-4">
+                {/* Player Controller */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="playerController-collider"
+                        checked={object.components?.includes('playerController') || false}
+                        onCheckedChange={(checked) => {
+                          const currentComponents = object.components || [];
+                          if (checked) {
+                            // Agregar componente
+                            if (!currentComponents.includes('playerController')) {
+                              onUpdate({ 
+                                components: [...currentComponents, 'playerController'],
+                                componentProps: {
+                                  ...(object.componentProps || {}),
+                                  playerController: {
+                                    speed: 5,
+                                    enabled: true,
+                                  }
+                                }
+                              });
+                            }
+                          } else {
+                            // Remover componente
+                            const newComponents = currentComponents.filter(c => c !== 'playerController');
+                            const newComponentProps = { ...(object.componentProps || {}) };
+                            delete newComponentProps.playerController;
+                            onUpdate({ 
+                              components: newComponents,
+                              componentProps: newComponentProps
+                            });
+                          }
+                        }}
+                      />
+                      <Label htmlFor="playerController-collider" className="cursor-pointer">
+                        Player Controller
+                      </Label>
+                    </div>
+                  </div>
+                  {object.components?.includes('playerController') && (
+                    <div className="pl-6 space-y-2 border-l-2 border-primary/20">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Velocidad</Label>
+                        <Input
+                          type="number"
+                          step="0.5"
+                          min="0.1"
+                          max="20"
+                          value={object.componentProps?.playerController?.speed || 5}
+                          onChange={(e) => {
+                            const speed = parseFloat(e.target.value) || 5;
+                            onUpdate({
+                              componentProps: {
+                                ...(object.componentProps || {}),
+                                playerController: {
+                                  ...(object.componentProps?.playerController || {}),
+                                  speed: Math.max(0.1, Math.min(20, speed))
+                                }
+                              }
+                            });
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground italic">
+                        Permite movimiento con WASD y rotación con mouse
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() => {
+                          // Acomodar el collider sobre el terreno
+                          const newPosition = [...object.position];
+                          if (newPosition[1] < 2) {
+                            newPosition[1] = 0;
+                          }
+                          // También asegurar que la rotación sea [0, 0, 0] para evitar volteos
+                          const newRotation = [0, 0, 0];
+                          onUpdate({ 
+                            position: newPosition,
+                            rotation: newRotation
+                          });
+                        }}
+                      >
+                        Acomodar sobre Terreno
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             </CollapsibleSection>
           </div>

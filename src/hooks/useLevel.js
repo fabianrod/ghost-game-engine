@@ -26,7 +26,6 @@ export const useLevel = (levelPath) => {
     // Primero intentar cargar desde localStorage (si fue guardado desde el editor)
     const cachedData = loadLevelFromStorage(filename);
     if (cachedData) {
-      console.log(`✅ Nivel cargado desde localStorage: ${filename}`);
       setLevelData(cachedData);
       setLoading(false);
       return;
@@ -41,12 +40,10 @@ export const useLevel = (levelPath) => {
         return response.json();
       })
       .then((data) => {
-        console.log(`✅ Nivel cargado desde archivo: ${levelPath}`);
         setLevelData(data);
         setLoading(false);
       })
       .catch((err) => {
-        console.error('Error cargando nivel:', err);
         setError(err.message);
         setLoading(false);
       });

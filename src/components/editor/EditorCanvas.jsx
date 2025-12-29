@@ -197,7 +197,6 @@ export const EditorCanvas = ({
           
           // Si es un objeto normal, verificar que tenga un modelo válido
           if (!obj.model || obj.model.trim() === '') {
-            console.warn('Objeto sin modelo válido:', obj.id);
             return null;
           }
           
@@ -355,26 +354,23 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
     const timeSinceLastDrag = Date.now() - lastDragEndTimeRef.current;
     const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
     
-    // Si hay un objeto seleccionado, ser MUY agresivo en prevenir la deselección
-    if (selectedObject) {
-      // NUNCA deseleccionar si el objeto seleccionado es el que se estaba transformando
-      if (transformingObjectIdRef.current === selectedObject) {
-        console.log('[RaycastHandler] Ignorando click - objeto se está transformando');
-        return; // Ignorar completamente el click
+      // Si hay un objeto seleccionado, ser MUY agresivo en prevenir la deselección
+      if (selectedObject) {
+        // NUNCA deseleccionar si el objeto seleccionado es el que se estaba transformando
+        if (transformingObjectIdRef.current === selectedObject) {
+          return; // Ignorar completamente el click
+        }
+        
+        // NUNCA deseleccionar si se acaba de terminar una transformación (menos de 3 segundos)
+        if (timeSinceLastTransform < 3000) {
+          return;
+        }
+        
+        // Si se estaba transformando recientemente (menos de 2 segundos), ignorar el click
+        if (wasTransformingRef.current && timeSinceLastDrag < 2000) {
+          return;
+        }
       }
-      
-      // NUNCA deseleccionar si se acaba de terminar una transformación (menos de 3 segundos)
-      if (timeSinceLastTransform < 3000) {
-        console.log('[RaycastHandler] Ignorando click - transformación reciente');
-        return;
-      }
-      
-      // Si se estaba transformando recientemente (menos de 2 segundos), ignorar el click
-      if (wasTransformingRef.current && timeSinceLastDrag < 2000) {
-        console.log('[RaycastHandler] Ignorando click - arrastre reciente');
-        return;
-      }
-    }
     
     // Si no hay objeto seleccionado o pasó suficiente tiempo, procesar normalmente
     // Pero solo si no se estaba transformando recientemente
@@ -431,20 +427,9 @@ const RaycastHandler = ({ onSelectObject, objects, selectedObject, transformingO
       // - Es un click explícito en espacio vacío (no se clickeó ningún objeto)
       // - Y NO se acaba de transformar
       if (intersects.length === 0 && !recentlyTransformed && timeSinceLastDrag >= 1000) {
-        console.log('[RaycastHandler] Deseleccionando - click explícito en espacio vacío');
         onSelectObject(null);
-      } else {
-        // Mantener seleccionado - no deseleccionar automáticamente
-        console.log('[RaycastHandler] Manteniendo selección', {
-          selectedObject,
-          intersects: intersects.length,
-          recentlyTransformed,
-          timeSinceLastTransform,
-          isCurrentlyTransforming
-        });
       }
     } catch (error) {
-      console.error('Error en raycasting:', error);
     } finally {
       isProcessing.current = false;
     }
@@ -475,7 +460,6 @@ const TransformControlsClickInterceptor = ({ transformRef, objectId, isTransform
       const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
       
       if (timeSinceLastTransform < 3000 || isTransforming.current || transformingObjectIdRef.current === objectId) {
-        console.log('[TransformControlsInterceptor] Previniendo click - transformación reciente');
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -536,7 +520,6 @@ const EditorSceneObject = memo(({
   
   // Si no hay modelo válido, no renderizar este componente
   if (!hasValidModel) {
-    console.warn('EditorSceneObject: objeto sin modelo válido:', object.id);
     return null;
   }
   
@@ -547,7 +530,6 @@ const EditorSceneObject = memo(({
       try {
         return modelScene.clone();
       } catch (error) {
-        console.warn('Error clonando modelo:', error);
         return null;
       }
     }
@@ -563,7 +545,6 @@ const EditorSceneObject = memo(({
       const box = new THREE.Box3().setFromObject(clonedModelScene);
       return box;
     } catch (error) {
-      console.warn('Error calculando bounding box:', error);
       return null;
     }
   }, [clonedModelScene]);
@@ -628,7 +609,6 @@ const EditorSceneObject = memo(({
           // La posición guardada es la base, aplicamos el offset y la altura del terreno visualmente
           visualY = object.position[1] + terrainHeight + minYOffsetRef.current;
         } catch (error) {
-          console.warn('Error calculando altura del terreno:', error);
           // Fallback: usar solo el offset si hay error
           visualY = object.position[1] + minYOffsetRef.current;
         }
@@ -951,12 +931,6 @@ const EditorSceneObject = memo(({
     // Aplicar transformación visual inmediatamente
     applyTransformSnap();
     
-    // Mostrar feedback visual durante escalado (opcional - se puede mejorar con overlay)
-    if (transformMode === 'scale' && groupRef.current) {
-      const scale = groupRef.current.scale;
-      // Log opcional para debugging - en producción se puede mostrar en UI
-      // console.log(`Escala: X=${scale.x.toFixed(2)}, Y=${scale.y.toFixed(2)}, Z=${scale.z.toFixed(2)}`);
-    }
   }, [applyTransformSnap, transformMode]);
 
   const handleDragStart = useCallback(() => {
@@ -1096,7 +1070,6 @@ const EditorSceneObject = memo(({
     // Esto permite que RaycastHandler sepa exactamente cuándo se terminó de transformar
     if (lastTransformEndTimeRef) {
       lastTransformEndTimeRef.current = Date.now();
-      console.log('[EditorSceneObject] Transformación terminada, tiempo registrado:', lastTransformEndTimeRef.current);
     }
     
     // IMPORTANTE: Mantener transformingObjectIdRef activo por más tiempo
@@ -1116,7 +1089,6 @@ const EditorSceneObject = memo(({
         // Solo limpiar si todavía es este objeto (no ha sido cambiado por otra transformación)
         if (transformingObjectIdRef && transformingObjectIdRef.current === object.id) {
           transformingObjectIdRef.current = null;
-          console.log('[EditorSceneObject] Limpiando transformingObjectIdRef');
         }
       }, 2500); // Limpiar después de 2.5 segundos adicionales (total ~3 segundos)
     }, 500); // Aumentado a 500ms para dar más tiempo
@@ -1200,7 +1172,6 @@ const EditorSceneObject = memo(({
           // Si se acaba de terminar una transformación, NO procesar el click
           const timeSinceLastTransform = lastTransformEndTimeRef ? Date.now() - lastTransformEndTimeRef.current : Infinity;
           if (timeSinceLastTransform < 3000) {
-            console.log('[EditorSceneObject] Ignorando click en grupo - transformación reciente');
             e.stopPropagation();
             return;
           }
@@ -1343,6 +1314,7 @@ const EditorColliderObject = memo(({
   snapSize = 1,
   transformingObjectIdRef,
   lastTransformEndTimeRef,
+  terrainHeightmap = null,
 }) => {
   const groupRef = useRef();
   const transformRef = useRef();
@@ -1689,14 +1661,12 @@ const EditorColliderObject = memo(({
     
     // Validar que dimensions sea un array válido y no null
     if (!Array.isArray(dimensions) || dimensions.length < 3) {
-      console.warn('[EditorColliderObject] Dimensiones inválidas, usando valores por defecto:', dimensions);
       dimensions = [1, 1, 1];
     }
     
     // Validar que todos los elementos sean números válidos
-    const safeDimensions = dimensions.map((d, index) => {
+    const safeDimensions = dimensions.map((d) => {
       if (d === null || d === undefined || typeof d !== 'number' || !isFinite(d) || isNaN(d)) {
-        console.warn(`[EditorColliderObject] Dimensión ${index} inválida:`, d);
         return 1;
       }
       return Math.max(0.1, d);
@@ -1816,25 +1786,6 @@ const EditorColliderObject = memo(({
     return null;
   };
 
-  // Log de posición del grupo en el editor
-  useEffect(() => {
-    if (groupRef.current) {
-      const groupPos = groupRef.current.position;
-      const groupRot = groupRef.current.rotation;
-      const groupWorldPos = new THREE.Vector3();
-      groupRef.current.getWorldPosition(groupWorldPos);
-      
-      console.log('🟠 [EDITOR - GRUPO DEL COLLIDER]:', {
-        'object.position': object.position,
-        'group.position (local)': [groupPos.x, groupPos.y, groupPos.z],
-        'group.position (world)': [groupWorldPos.x, groupWorldPos.y, groupWorldPos.z],
-        'group.rotation (rad)': [groupRot.x, groupRot.y, groupRot.z],
-        'object.rotation (deg)': object.rotation,
-        'object.scale': object.scale,
-        'colliderType': object.colliderType,
-      });
-    }
-  }, [object.position, object.rotation, object.scale, object.colliderType]);
 
   return (
     <>

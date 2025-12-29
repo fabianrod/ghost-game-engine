@@ -73,7 +73,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         modelUrl = module.default;
       } else {
         // Fallback: usar la ruta original (no debería llegar aquí)
-        console.warn('No se pudo obtener URL para:', path, module);
         modelUrl = path;
       }
       
@@ -89,8 +88,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Cargar objetos del nivel actual
   useEffect(() => {
     if (currentLevel && currentLevel.data && currentLevel.data.objects) {
-      console.log('📦 Cargando objetos del nivel:', currentLevel.data.objects.length, 'objetos');
-      
       // Preservar la selección actual y los IDs existentes
       const currentSelectedId = selectedObject;
       const existingObjectsMap = new Map();
@@ -108,38 +105,31 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         
         // Normalizar la ruta del modelo si es necesario
         const modelPath = normalizeModelPath(obj.model, availableModels);
-        if (modelPath !== obj.model) {
-          console.log(`🔄 Ruta de modelo normalizada: ${obj.model} -> ${modelPath}`);
-        }
+        
+        // Preservar el ID del objeto cargado (es crítico para referencias como targetId)
+        // Solo usar existingId si el objeto cargado no tiene ID (caso raro)
+        const preservedId = obj.id || existingId || `obj-${index}-${Date.now()}-${Math.random()}`;
         
         const editorObj = {
           ...obj,
           model: modelPath || obj.model,
-          // Preservar ID existente si encontramos un objeto en la misma posición
-          // De lo contrario, generar uno nuevo solo si no tiene ID
-          id: existingId || obj.id || `obj-${index}-${Date.now()}-${Math.random()}`,
+          // CRÍTICO: Preservar el ID del objeto cargado para mantener referencias
+          id: preservedId,
           // Solo agregar colliderScale a objetos normales, no a colliders
           ...(obj.type !== 'collider' && { colliderScale: obj.colliderScale || [0.8, 0.8, 0.8] }),
+          // Para cámaras, asegurar que targetId sea null si no está definido (no undefined)
+          ...(obj.type === 'camera' && { targetId: obj.targetId !== undefined ? obj.targetId : null }),
         };
-        
-        console.log(`  ✓ Objeto ${index}:`, {
-          type: editorObj.type,
-          model: editorObj.model,
-          position: editorObj.position,
-          id: editorObj.id
-        });
         
         return editorObj;
       });
       
-      console.log(`✅ ${editorObjects.length} objetos cargados en el editor`);
       setObjects(editorObjects);
       
       // Cargar heightmap del terreno si existe
       if (currentLevel.data.terrain && currentLevel.data.terrain.heightmap) {
         const heightmapArray = new Float32Array(currentLevel.data.terrain.heightmap);
         setTerrainHeightmap(heightmapArray);
-        console.log('🗻 Heightmap del terreno cargado:', heightmapArray.length, 'puntos');
       } else {
         setTerrainHeightmap(null);
       }
@@ -155,7 +145,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       }
     } else if (currentLevel && currentLevel.data) {
       // Nivel sin objetos
-      console.log('📦 Nivel sin objetos');
       setObjects([]);
       // Cargar heightmap si existe
       if (currentLevel.data.terrain && currentLevel.data.terrain.heightmap) {
@@ -169,7 +158,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       //   setSelectedObject(null);
       // }
     } else if (!currentLevel) {
-      console.log('📦 No hay nivel cargado');
       setTerrainHeightmap(null);
     }
   }, [currentLevel, availableModels]); // Incluir availableModels para normalizar rutas
@@ -188,12 +176,11 @@ export const LevelEditor = ({ mode, onModeChange }) => {
           if (!currentLevel || 
               currentLevel.filename !== filename || 
               JSON.stringify(currentLevel.data) !== JSON.stringify(cachedData)) {
-            console.log(`🔄 Sincronizando nivel desde localStorage: ${filename}`);
             setCurrentLevel({ filename, data: cachedData });
           }
         }
       } catch (storageErr) {
-        console.warn('Error accediendo a localStorage:', storageErr);
+        // Error accediendo a localStorage
       }
     };
 
@@ -217,11 +204,9 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     
     // Preparar datos del nivel sin los IDs internos del editor
     const levelData = prepareLevelDataForSave(objects, currentLevel?.data, terrainHeightmap);
-
+    
     // Guardar en localStorage automáticamente
-    if (saveLevelToStorage(filename, levelData) && (objects.length > 0 || terrainHeightmap)) {
-      console.log(`💾 Cambios guardados automáticamente en localStorage: ${filename} (${objects.length} objetos${terrainHeightmap ? ', con terreno' : ''})`);
-    }
+    saveLevelToStorage(filename, levelData);
   }, [objects, currentLevel, terrainHeightmap]); // Se ejecuta cada vez que cambian los objetos, el nivel o el heightmap
 
   // Inicializar con nivel nuevo si no hay nivel cargado
@@ -229,8 +214,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
   // Luego intentar cargar desde archivo
   useEffect(() => {
     if (!currentLevel) {
-      console.log('🔍 Inicializando editor: buscando nivel...');
-      
       // Intentar cargar desde localStorage primero (cambios sin guardar)
       const tryLoadFromLocalStorage = () => {
         try {
@@ -239,13 +222,12 @@ export const LevelEditor = ({ mode, onModeChange }) => {
           const cachedData = loadLevelFromStorage(filename);
           
           if (cachedData) {
-            console.log(`✅ Cargando cambios sin guardar desde localStorage: ${filename}`);
             setCurrentLevel({ filename, data: cachedData });
             // Los objetos se cargarán en el useEffect que depende de currentLevel
             return true;
           }
         } catch (storageErr) {
-          console.warn('Error accediendo a localStorage:', storageErr);
+          // Error accediendo a localStorage
         }
         return false;
       };
@@ -254,14 +236,12 @@ export const LevelEditor = ({ mode, onModeChange }) => {
       const tryLoadFromFile = async () => {
         try {
           const filename = 'level1.json';
-          console.log(`📂 Intentando cargar nivel desde archivo: ${filename}`);
           const levelData = await loadLevel(filename);
           if (levelData) {
-            console.log(`✅ Nivel cargado desde archivo: ${filename}`);
             return true;
           }
         } catch (err) {
-          console.warn('No se pudo cargar nivel desde archivo:', err.message);
+          // No se pudo cargar nivel desde archivo
         }
         return false;
       };
@@ -272,7 +252,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         tryLoadFromFile().then(loaded => {
           if (!loaded) {
             // Si no se pudo cargar, crear nivel nuevo
-            console.log('📝 Creando nivel nuevo');
             const newLevel = createNewLevel();
             setCurrentLevel({ filename: null, data: newLevel });
             setObjects([]);
@@ -424,11 +403,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
     const deleteSelectedObject = () => {
       if (!selectedObject) return;
       
-      console.log('[LevelEditor] Eliminando objeto:', selectedObject);
       setObjects((prevObjects) => {
-        const filtered = prevObjects.filter((obj) => obj.id !== selectedObject);
-        console.log('[LevelEditor] Objetos después de eliminar:', filtered.length);
-        return filtered;
+        return prevObjects.filter((obj) => obj.id !== selectedObject);
       });
       setSelectedObject(null);
     };
@@ -479,7 +455,6 @@ export const LevelEditor = ({ mode, onModeChange }) => {
         event.keyCode === 8;    // Backspace key code
       
       if (isDeleteKey && selectedObject) {
-        console.log('[LevelEditor] Tecla Delete detectada');
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -568,7 +543,8 @@ export const LevelEditor = ({ mode, onModeChange }) => {
 
       // Crear nuevo array con solo el objeto actualizado
       const newObjects = [...prevObjects];
-      newObjects[index] = { ...newObjects[index], ...updates };
+      const oldObj = newObjects[index];
+      newObjects[index] = { ...oldObj, ...updates };
       
       return newObjects;
     });

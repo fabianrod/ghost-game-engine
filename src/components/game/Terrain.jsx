@@ -25,7 +25,7 @@ export const Terrain = ({ hasPhysics = true, levelFilename = 'level1.json' }) =>
         return;
       }
     } catch (e) {
-      console.log('No se encontró heightmap guardado, generando uno por defecto');
+      // No se encontró heightmap guardado, generando uno por defecto
     }
 
     // Generar terreno procedural por defecto

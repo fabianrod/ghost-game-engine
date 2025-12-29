@@ -39,7 +39,6 @@ export function saveLevelToStorage(filename, levelData) {
     localStorage.setItem(timestampKey, Date.now().toString());
     return true;
   } catch (error) {
-    console.warn('Error guardando en localStorage:', error);
     return false;
   }
 }
@@ -75,7 +74,6 @@ export function loadLevelFromStorage(filename) {
     const data = JSON.parse(cachedData);
     return data;
   } catch (error) {
-    console.warn('Error cargando desde localStorage:', error);
     return null;
   }
 }
@@ -91,7 +89,7 @@ export function removeLevelFromStorage(filename) {
     localStorage.removeItem(levelKey);
     localStorage.removeItem(timestampKey);
   } catch (error) {
-    console.warn('Error eliminando de localStorage:', error);
+    // Error eliminando de localStorage
   }
 }
 
